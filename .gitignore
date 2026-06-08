@@ -1,0 +1,20 @@
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.env*
+!frontend/.env.example
+
+# Maven
+backend/target/
+backend/.project
+backend/.classpath
+backend/.settings/
+backend/*.iml
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
