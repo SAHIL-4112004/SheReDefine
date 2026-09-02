@@ -10,7 +10,7 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/opportunities")
-@CrossOrigin(origins = "http://localhost:5173")
+@CrossOrigin(origins = {"http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173", "http://127.0.0.1:5173"})
 public class OpportunityController {
 
     private final OpportunityRepository opportunityRepository;
@@ -64,6 +64,15 @@ public class OpportunityController {
                     opportunity.setExtraDetails(opportunityDetails.getExtraDetails());
                     opportunity.setPosterTemplate(opportunityDetails.getPosterTemplate());
                     opportunity.setPosterUrl(opportunityDetails.getPosterUrl());
+                    opportunity.setHostVerificationProof(opportunityDetails.getHostVerificationProof());
+                    opportunity.setContactPerson(opportunityDetails.getContactPerson());
+                    opportunity.setContactEmail(opportunityDetails.getContactEmail());
+                    opportunity.setContactPhone(opportunityDetails.getContactPhone());
+                    opportunity.setPosterRelationship(opportunityDetails.getPosterRelationship());
+                    opportunity.setLifeStageTags(opportunityDetails.getLifeStageTags());
+                    opportunity.setShortDescription(opportunityDetails.getShortDescription());
+                    opportunity.setApplicationLink(opportunityDetails.getApplicationLink());
+                    opportunity.setDetailsJson(opportunityDetails.getDetailsJson());
                     if (opportunityDetails.getStatus() != null) {
                         opportunity.setStatus(opportunityDetails.getStatus());
                     }

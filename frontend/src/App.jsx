@@ -281,6 +281,10 @@ const MOCK_INTERVIEW_QUESTIONS = {
 };
 
 export default function App() {
+  const API_BASE = window.location.hostname === "127.0.0.1" 
+    ? "http://127.0.0.1:8080" 
+    : "http://localhost:8080";
+
   // --------------------------------------------------
   // Core State & Authentication
   // --------------------------------------------------
@@ -352,7 +356,11 @@ export default function App() {
       if (!user.profilePhoto) {
         user.profilePhoto = "";
       }
-      if (!user.profileDetails) {
+      if (user.profileDetails) {
+        user.profileDetails = user.role === "host"
+          ? { ...createDefaultHostProfileDetails(), ...user.profileDetails }
+          : { ...createDefaultProfileDetails(), ...user.profileDetails };
+      } else {
         user.profileDetails = user.role === "host" ? createDefaultHostProfileDetails() : createDefaultProfileDetails();
       }
     }
@@ -496,8 +504,10 @@ export default function App() {
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false);
   const [applyOpp, setApplyOpp] = useState(null);
   const [applyForm, setApplyForm] = useState({ resumeName: "resume_submitted.pdf", coverNote: "" });
+  const [selectedOppForApplicants, setSelectedOppForApplicants] = useState(null);
 
   const [isHostModalOpen, setIsHostModalOpen] = useState(false);
+  const [hostFormStep, setHostFormStep] = useState(1);
   const [hostForm, setHostForm] = useState({
     title: "",
     company: "",
@@ -513,7 +523,71 @@ export default function App() {
     description: "",
     featured: false,
     posterTemplate: "tech-blue",
-    posterUrl: ""
+    posterUrl: "",
+    
+    // Common Metadata
+    hostVerificationProof: "",
+    contactPerson: "",
+    contactEmail: "",
+    contactPhone: "",
+    posterRelationship: "HR",
+    lifeStageTags: ["student"],
+    shortDescription: "",
+    applicationLink: "in-platform",
+    
+    // Type-Specific Details (Job)
+    jobEmploymentType: "full-time",
+    jobExperienceLevel: "fresher",
+    jobSalaryRange: "",
+    jobRequiredSkills: "",
+    jobCareerBreakFriendly: "yes",
+    
+    // Type-Specific Details (Internship)
+    internshipDuration: "",
+    internshipStipend: "",
+    internshipHoursPerWeek: "full-time",
+    internshipEligibility: "",
+    internshipConversionOffer: "maybe",
+    internshipCertificate: "yes",
+    
+    // Type-Specific Details (Competition)
+    competitionFormat: "solo",
+    competitionMaxTeamSize: 4,
+    competitionTheme: "",
+    competitionPrizeDetails: "",
+    competitionRegistrationFee: "Free",
+    competitionTimeline: "",
+    competitionEligibility: "open to all",
+    competitionRubricLink: "",
+    
+    // Type-Specific Details (Mentorship)
+    mentorshipExpertise: "",
+    mentorshipBio: "",
+    mentorshipLinkedIn: "",
+    mentorshipFormat: "1:1",
+    mentorshipDuration: "",
+    mentorshipPaidOrFree: "Free",
+    mentorshipWhoFor: "",
+    mentorshipSelectionProcess: "open",
+    
+    // Type-Specific Details (Course/Workshop)
+    courseInstructorCredentials: "",
+    courseMode: "live",
+    courseDuration: "",
+    coursePrice: "Free",
+    courseCertificate: "yes",
+    coursePrerequisites: "",
+    coursePlatform: "",
+    courseSchedule: "",
+    
+    // Type-Specific Details (Club/Community)
+    clubFocus: "",
+    clubMembershipType: "open",
+    clubFee: "Free",
+    clubPlatform: "Discord",
+    clubActivityCadence: "",
+    clubGuidelinesLink: "",
+    clubSizeCap: ""
   });
 
   const [hostActiveTab, setHostActiveTab] = useState("overview");
@@ -521,6 +595,25 @@ export default function App() {
   const [editingOpp, setEditingOpp] = useState(null);
   const [isEditOppModalOpen, setIsEditOppModalOpen] = useState(false);
   const [candidateProfileToView, setCandidateProfileToView] = useState(null);
+
+  const [adminExpandedOppId, setAdminExpandedOppId] = useState(null);
+
+  const parseOppDetails = (opp) => {
+    if (!opp) return {};
+    if (opp.detailsJson) {
+      try {
+        return JSON.parse(opp.detailsJson);
+      } catch (err) {
+        console.log("Error parsing detailsJson:", err);
+      }
+    }
+    // Fallback support for seeded/mock opportunities
+    return {
+      experienceLevel: opp.eligibility || "",
+      salaryRange: opp.price || "Not Disclosed",
+      requiredSkills: opp.extraDetails ? opp.extraDetails.split(",") : []
+    };
+  };
 
   const navigateHostTab = (direction) => {
     const tabs = ["overview", "jobs", "internships", "competitions", "mentorship", "mock_prep", "webinars", "clubs", "applications", "company"];
@@ -840,7 +933,7 @@ export default function App() {
   useEffect(() => {
     const fetchBackendData = async () => {
       try {
-        const oppsRes = await fetch("http://localhost:8080/api/opportunities");
+        const oppsRes = await fetch(`${API_BASE}/api/opportunities`);
         if (oppsRes.ok) {
           const oppsData = await oppsRes.json();
           if (oppsData && oppsData.length > 0) {
@@ -852,7 +945,7 @@ export default function App() {
       }
 
       try {
-        const noticesRes = await fetch("http://localhost:8080/api/notices");
+        const noticesRes = await fetch(`${API_BASE}/api/notices`);
         if (noticesRes.ok) {
           const noticesData = await noticesRes.json();
           if (noticesData && noticesData.length > 0) {
@@ -862,9 +955,31 @@ export default function App() {
       } catch (err) {
         console.log("Backend not running or unreachable, using local notices data:", err);
       }
+
+      try {
+        const appsRes = await fetch(`${API_BASE}/api/applications`);
+        if (appsRes.ok) {
+          const appsData = await appsRes.json();
+          if (appsData && appsData.length > 0) {
+            const parsedApps = appsData.map(app => {
+              if (app.submittedDetailsJson) {
+                try {
+                  return { ...app, submittedDetails: JSON.parse(app.submittedDetailsJson) };
+                } catch (e) {
+                  return app;
+                }
+              }
+              return app;
+            });
+            setApplications(parsedApps);
+          }
+        }
+      } catch (err) {
+        console.log("Backend not running or unreachable, using local applications data:", err);
+      }
     };
     fetchBackendData();
-  }, []);
+  }, [isLoggedIn]);
 
   // Click outside user menu or more menu to close them
   useEffect(() => {
@@ -1041,7 +1156,7 @@ export default function App() {
     };
 
     try {
-      const response = await fetch("http://localhost:8080/api/users/profile", {
+      const response = await fetch(`${API_BASE}/api/users/profile`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json"
@@ -1278,6 +1393,28 @@ export default function App() {
     };
 
     setApplications(prev => [...prev, newApp]);
+
+    const backendApp = {
+      id: newApp.id,
+      opportunityId: newApp.opportunityId,
+      opportunityTitle: newApp.opportunityTitle,
+      company: newApp.company,
+      candidateName: newApp.candidateName,
+      email: newApp.email,
+      phone: newApp.phone,
+      resume: newApp.resume,
+      coverNote: newApp.coverNote,
+      status: newApp.status,
+      appliedAt: newApp.appliedAt,
+      submittedDetailsJson: JSON.stringify(newApp.submittedDetails)
+    };
+
+    fetch(`${API_BASE}/api/applications`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(backendApp)
+    }).catch(err => console.log("Failed to persist application to backend:", err));
+
     setIsApplyModalOpen(false);
     setApplyForm({ firstName: "", lastName: "", phone: "", resumeName: "resume_submitted.pdf", coverNote: "" });
     alert("Application successfully submitted! Track progress in 'My Applications'.");
@@ -1356,7 +1493,7 @@ export default function App() {
 
   const saveOpportunityToBackend = async (newOpp) => {
     try {
-      await fetch("http://localhost:8080/api/opportunities", {
+      await fetch(`${API_BASE}/api/opportunities`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newOpp)
@@ -1368,7 +1505,7 @@ export default function App() {
 
   const saveNoticeToBackend = async (newNotice) => {
     try {
-      await fetch("http://localhost:8080/api/notices", {
+      await fetch(`${API_BASE}/api/notices`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newNotice)
@@ -1380,7 +1517,7 @@ export default function App() {
 
   const deleteNoticeFromBackend = async (noticeId) => {
     try {
-      await fetch(`http://localhost:8080/api/notices/${noticeId}`, {
+      await fetch(`${API_BASE}/api/notices/${noticeId}`, {
         method: "DELETE"
       });
     } catch (err) {
@@ -1390,7 +1527,7 @@ export default function App() {
 
   const syncOpportunityStatusToBackend = async (id, status) => {
     try {
-      await fetch(`http://localhost:8080/api/opportunities/${id}/status?status=${status}`, {
+      await fetch(`${API_BASE}/api/opportunities/${id}/status?status=${status}`, {
         method: "PUT"
       });
     } catch (err) {
@@ -1400,7 +1537,7 @@ export default function App() {
 
   const syncOpportunityFeaturedToBackend = async (id, featured, template, url) => {
     try {
-      let endpoint = `http://localhost:8080/api/opportunities/${id}/featured?featured=${featured}`;
+      let endpoint = `${API_BASE}/api/opportunities/${id}/featured?featured=${featured}`;
       if (template) endpoint += `&posterTemplate=${template}`;
       if (url) endpoint += `&posterUrl=${encodeURIComponent(url)}`;
       await fetch(endpoint, {
@@ -1421,8 +1558,70 @@ export default function App() {
     alert("Registration Successful! An invite and calendar reminder have been sent to your email.");
   };
 
+  const toggleLifeStageTag = (tag) => {
+    setHostForm(prev => {
+      const tags = prev.lifeStageTags.includes(tag)
+        ? prev.lifeStageTags.filter(t => t !== tag)
+        : [...prev.lifeStageTags, tag];
+      return { ...prev, lifeStageTags: tags };
+    });
+  };
+
   const submitNewOpportunity = (e) => {
     e.preventDefault();
+
+    const categoryDetails = {};
+    if (hostForm.type === "JOB") {
+      categoryDetails.employmentType = hostForm.jobEmploymentType;
+      categoryDetails.experienceLevel = hostForm.jobExperienceLevel;
+      categoryDetails.salaryRange = hostForm.jobSalaryRange;
+      categoryDetails.requiredSkills = hostForm.jobRequiredSkills.split(",").map(s => s.trim()).filter(Boolean);
+      categoryDetails.careerBreakFriendly = hostForm.jobCareerBreakFriendly;
+      categoryDetails.openings = hostForm.seats;
+    } else if (hostForm.type === "INTERNSHIP") {
+      categoryDetails.duration = hostForm.internshipDuration;
+      categoryDetails.stipend = hostForm.internshipStipend;
+      categoryDetails.hoursPerWeek = hostForm.internshipHoursPerWeek;
+      categoryDetails.eligibility = hostForm.internshipEligibility;
+      categoryDetails.conversionOffer = hostForm.internshipConversionOffer;
+      categoryDetails.certificate = hostForm.internshipCertificate;
+    } else if (hostForm.type === "COMPETITION") {
+      categoryDetails.format = hostForm.competitionFormat;
+      categoryDetails.maxTeamSize = hostForm.competitionMaxTeamSize;
+      categoryDetails.theme = hostForm.competitionTheme;
+      categoryDetails.prizeDetails = hostForm.competitionPrizeDetails;
+      categoryDetails.registrationFee = hostForm.competitionRegistrationFee;
+      categoryDetails.timeline = hostForm.competitionTimeline;
+      categoryDetails.eligibility = hostForm.competitionEligibility;
+      categoryDetails.rubricLink = hostForm.competitionRubricLink;
+    } else if (hostForm.type === "MENTORSHIP") {
+      categoryDetails.mentorExpertise = hostForm.mentorshipExpertise;
+      categoryDetails.mentorBio = hostForm.mentorshipBio;
+      categoryDetails.mentorLinkedIn = hostForm.mentorshipLinkedIn;
+      categoryDetails.format = hostForm.mentorshipFormat;
+      categoryDetails.duration = hostForm.mentorshipDuration;
+      categoryDetails.paidOrFree = hostForm.mentorshipPaidOrFree;
+      categoryDetails.whoFor = hostForm.mentorshipWhoFor;
+      categoryDetails.selectionProcess = hostForm.mentorshipSelectionProcess;
+    } else if (hostForm.type === "WEBINAR" || hostForm.type === "WORKSHOP" || hostForm.type === "TRAINING" || hostForm.type === "COURSES") {
+      categoryDetails.instructorCredentials = hostForm.courseInstructorCredentials;
+      categoryDetails.courseMode = hostForm.courseMode;
+      categoryDetails.duration = hostForm.courseDuration;
+      categoryDetails.price = hostForm.coursePrice;
+      categoryDetails.certificate = hostForm.courseCertificate;
+      categoryDetails.prerequisites = hostForm.coursePrerequisites;
+      categoryDetails.platform = hostForm.coursePlatform;
+      categoryDetails.schedule = hostForm.courseSchedule;
+    } else if (hostForm.type === "CLUB") {
+      categoryDetails.clubFocus = hostForm.clubFocus;
+      categoryDetails.membershipType = hostForm.clubMembershipType;
+      categoryDetails.clubFee = hostForm.clubFee;
+      categoryDetails.clubPlatform = hostForm.clubPlatform;
+      categoryDetails.activityCadence = hostForm.clubActivityCadence;
+      categoryDetails.guidelinesLink = hostForm.clubGuidelinesLink;
+      categoryDetails.sizeCap = hostForm.clubSizeCap;
+    }
+
     const newOpp = {
       id: "opp-" + Date.now(),
       title: hostForm.title,
@@ -1441,12 +1640,24 @@ export default function App() {
       featured: hostForm.featured || false,
       extraDetails: hostForm.category === "break" ? "Returnship role" : (hostForm.category === "fresh" ? "Women-friendly entry" : "Switch role"),
       posterTemplate: hostForm.posterTemplate || "tech-blue",
-      posterUrl: hostForm.posterUrl || ""
+      posterUrl: hostForm.posterUrl || "",
+
+      // New columns mapping
+      hostVerificationProof: hostForm.hostVerificationProof,
+      contactPerson: hostForm.contactPerson,
+      contactEmail: hostForm.contactEmail,
+      contactPhone: hostForm.contactPhone,
+      posterRelationship: hostForm.posterRelationship,
+      lifeStageTags: hostForm.lifeStageTags.join(","),
+      shortDescription: hostForm.shortDescription,
+      applicationLink: hostForm.applicationLink,
+      detailsJson: JSON.stringify(categoryDetails)
     };
 
     setOpportunities(prev => [...prev, newOpp]);
     saveOpportunityToBackend(newOpp);
     setIsHostModalOpen(false);
+    setHostFormStep(1);
     setHostForm({
       title: "",
       company: "",
@@ -1462,14 +1673,64 @@ export default function App() {
       description: "",
       featured: false,
       posterTemplate: "tech-blue",
-      posterUrl: ""
+      posterUrl: "",
+      hostVerificationProof: "",
+      contactPerson: "",
+      contactEmail: "",
+      contactPhone: "",
+      posterRelationship: "HR",
+      lifeStageTags: ["student"],
+      shortDescription: "",
+      applicationLink: "in-platform",
+      jobEmploymentType: "full-time",
+      jobExperienceLevel: "fresher",
+      jobSalaryRange: "",
+      jobRequiredSkills: "",
+      jobCareerBreakFriendly: "yes",
+      internshipDuration: "",
+      internshipStipend: "",
+      internshipHoursPerWeek: "full-time",
+      internshipEligibility: "",
+      internshipConversionOffer: "maybe",
+      internshipCertificate: "yes",
+      competitionFormat: "solo",
+      competitionMaxTeamSize: 4,
+      competitionTheme: "",
+      competitionPrizeDetails: "",
+      competitionRegistrationFee: "Free",
+      competitionTimeline: "",
+      competitionEligibility: "open to all",
+      competitionRubricLink: "",
+      mentorshipExpertise: "",
+      mentorshipBio: "",
+      mentorshipLinkedIn: "",
+      mentorshipFormat: "1:1",
+      mentorshipDuration: "",
+      mentorshipPaidOrFree: "Free",
+      mentorshipWhoFor: "",
+      mentorshipSelectionProcess: "open",
+      courseInstructorCredentials: "",
+      courseMode: "live",
+      courseDuration: "",
+      coursePrice: "Free",
+      courseCertificate: "yes",
+      coursePrerequisites: "",
+      coursePlatform: "",
+      courseSchedule: "",
+      clubFocus: "",
+      clubMembershipType: "open",
+      clubFee: "Free",
+      clubPlatform: "Discord",
+      clubActivityCadence: "",
+      clubGuidelinesLink: "",
+      clubSizeCap: ""
     });
     alert("Opportunity hosted successfully! Awaiting Admin approval before showing on public board.");
   };
 
   const updateOpportunityOnBackend = async (id, updatedOpp) => {
     try {
-      await fetch(`http://localhost:8080/api/opportunities/${id}`, {
+      await fetch(`${API_BASE}/api/opportunities/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedOpp)
@@ -1481,7 +1742,7 @@ export default function App() {
 
   const deleteOpportunityFromBackend = async (id) => {
     try {
-      await fetch(`http://localhost:8080/api/opportunities/${id}`, {
+      await fetch(`${API_BASE}/api/opportunities/${id}`, {
         method: "DELETE"
       });
     } catch (err) {
@@ -1754,13 +2015,13 @@ export default function App() {
         category: "host",
         docUploaded: "org_license.pdf",
         password: password,
-        profileDetailsJson: "{}"
+        profileDetailsJson: JSON.stringify(createDefaultHostProfileDetails())
       };
     }
 
     if (newUser) {
       try {
-        const response = await fetch("http://localhost:8080/api/users/register", {
+        const response = await fetch(`${API_BASE}/api/users/register`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
@@ -1772,12 +2033,15 @@ export default function App() {
           const savedUser = await response.json();
           if (savedUser.profileDetailsJson) {
             try {
-              savedUser.profileDetails = JSON.parse(savedUser.profileDetailsJson);
+              const parsed = JSON.parse(savedUser.profileDetailsJson);
+              savedUser.profileDetails = savedUser.role === "host"
+                ? { ...createDefaultHostProfileDetails(), ...parsed }
+                : { ...createDefaultProfileDetails(), ...parsed };
             } catch (err) {
-              savedUser.profileDetails = createDefaultProfileDetails();
+              savedUser.profileDetails = savedUser.role === "host" ? createDefaultHostProfileDetails() : createDefaultProfileDetails();
             }
           } else {
-            savedUser.profileDetails = createDefaultProfileDetails();
+            savedUser.profileDetails = savedUser.role === "host" ? createDefaultHostProfileDetails() : createDefaultProfileDetails();
           }
 
           setCurrentUser(savedUser);
@@ -1856,7 +2120,7 @@ export default function App() {
       const password = loginForm.password;
 
       try {
-        const response = await fetch("http://localhost:8080/api/users/login", {
+        const response = await fetch(`${API_BASE}/api/users/login`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
@@ -1872,12 +2136,15 @@ export default function App() {
           const dbUser = await response.json();
           if (dbUser.profileDetailsJson) {
             try {
-              dbUser.profileDetails = JSON.parse(dbUser.profileDetailsJson);
+              const parsed = JSON.parse(dbUser.profileDetailsJson);
+              dbUser.profileDetails = dbUser.role === "host"
+                ? { ...createDefaultHostProfileDetails(), ...parsed }
+                : { ...createDefaultProfileDetails(), ...parsed };
             } catch (err) {
-              dbUser.profileDetails = createDefaultProfileDetails();
+              dbUser.profileDetails = dbUser.role === "host" ? createDefaultHostProfileDetails() : createDefaultProfileDetails();
             }
           } else {
-            dbUser.profileDetails = createDefaultProfileDetails();
+            dbUser.profileDetails = dbUser.role === "host" ? createDefaultHostProfileDetails() : createDefaultProfileDetails();
           }
 
           setCurrentUser(dbUser);
@@ -1886,7 +2153,8 @@ export default function App() {
           return;
         } else {
           const errMsg = await response.text();
-          console.warn("Backend login failed: " + errMsg + ". Trying local fallback...");
+          setAuthError(errMsg || "Invalid credentials.");
+          return;
         }
       } catch (err) {
         console.warn("Backend unavailable. Logging in locally:", err);
@@ -1911,11 +2179,15 @@ export default function App() {
       // 2. Check defaults
       if (loginRole === "candidate") {
         const isDefault = email === "aaradhya.sen@example.com";
-        if (isDefault && password !== "password123") {
-          setAuthError("Invalid password for this account.");
+        if (!isDefault) {
+          setAuthError("Account not found. Please register first.");
           return;
         }
-        const name = isDefault ? "Aaradhya Sen" : loginForm.username.split('@')[0];
+        if (password !== "password123") {
+          setAuthError("Invalid password. Please try again.");
+          return;
+        }
+        const name = "Aaradhya Sen";
         const parts = name.trim().split(/\s+/);
         const fName = parts[0] || "";
         const lName = parts.slice(1).join(" ") || "";
@@ -1977,19 +2249,42 @@ export default function App() {
         setCurrentView("opportunities");
       } else if (loginRole === "host") {
         const isDefault = email === "neeraja.iyer@salesforce.com";
-        if (isDefault && password !== "password123") {
-          setAuthError("Invalid password for this account.");
+        if (!isDefault) {
+          setAuthError("Account not found. Please register first.");
           return;
         }
-        const name = isDefault ? "Neeraja Iyer" : loginForm.username.split('@')[0];
+        if (password !== "password123") {
+          setAuthError("Invalid password. Please try again.");
+          return;
+        }
+        const name = "Neeraja Iyer";
+        const parts = name.trim().split(/\s+/);
+        const fName = parts[0] || "";
+        const lName = parts.slice(1).join(" ") || "";
         const host = {
           name: name,
+          firstName: fName,
+          lastName: lName,
+          username: isDefault ? "neeraja_iyer_200" : (name.toLowerCase().replace(/[^a-z0-9]/g, "") + "_" + Math.floor(100 + Math.random() * 900)),
           email: loginForm.username,
-          phone: "Salesforce Partner",
+          phone: isDefault ? "Salesforce Partner" : "+91 00000 00000",
           role: "host",
           isVerified: true,
           category: "host",
-          docUploaded: "org_license.pdf"
+          docUploaded: "org_license.pdf",
+          profileDetails: isDefault ? {
+            companyName: "Salesforce",
+            companyWebsite: "https://salesforce.com",
+            companyIndustry: "Cloud Software / SaaS",
+            companyLogo: "https://images.unsplash.com/photo-1614741118887-7a4ee193a5fa?q=80&w=120&auto=format&fit=crop",
+            companyDescription: "We are a global leader in customer relationship management (CRM) software, helping companies connect with their customers in a whole new way.",
+            recruiterTitle: "Senior Recruiter",
+            recruiterBio: "Passionate about finding outstanding diverse talent and helping returners launch back into tech roles.",
+            socialLinks: {
+              linkedin: "https://linkedin.com/in/neerajaiyer",
+              twitter: "https://twitter.com/neerajaiyer"
+            }
+          } : createDefaultHostProfileDetails()
         };
         setCurrentUser(host);
         setIsLoggedIn(true);
@@ -2063,14 +2358,18 @@ export default function App() {
       }
       return a;
     }));
+
+    fetch(`${API_BASE}/api/applications/${appId}/status?status=${newStatus}`, {
+      method: "PUT"
+    }).catch(err => console.log("Failed to sync application status to backend:", err));
   };
 
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen flex flex-col justify-between bg-[#f6f8fb] relative overflow-hidden font-sans">
         {/* Background Glowing Circles */}
-        <div className="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] rounded-full bg-brand-200/30 blur-[120px] pointer-events-none animate-pulse-glow"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[50vw] h-[50vw] rounded-full bg-blue-200/30 blur-[120px] pointer-events-none animate-pulse-glow animation-delay-300"></div>
+        <div className="absolute top-[-10%] left-[-15%] w-[600px] h-[600px] rounded-full bg-[#ff6d2d]/25 blur-[120px] pointer-events-none animate-blob-1 mix-blend-multiply z-0"></div>
+        <div className="absolute bottom-[-10%] right-[-15%] w-[700px] h-[700px] rounded-full bg-[#3b82f6]/25 blur-[140px] pointer-events-none animate-blob-2 mix-blend-multiply z-0"></div>
 
         {/* Header */}
         <header className="px-6 py-5 flex items-center justify-between border-b border-slate-200/50 bg-white/60 backdrop-blur-md relative z-10">
@@ -2960,7 +3259,11 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-[#f6f8fb]">
+    <div className="flex flex-col min-h-screen bg-[#f6f8fb] relative overflow-hidden">
+      {/* Background Animated Blobs */}
+      <div className="absolute top-[-10%] left-[-15%] w-[700px] h-[700px] rounded-full bg-[#ff6d2d]/22 blur-[120px] pointer-events-none animate-blob-1 z-0 mix-blend-multiply"></div>
+      <div className="absolute bottom-[-10%] right-[-15%] w-[800px] h-[800px] rounded-full bg-[#3b82f6]/22 blur-[140px] pointer-events-none animate-blob-2 z-0 mix-blend-multiply"></div>
+      <div className="absolute top-[40%] left-[20%] w-[600px] h-[600px] rounded-full bg-[#a855f7]/18 blur-[120px] pointer-events-none animate-blob-3 z-0 mix-blend-multiply"></div>
 
       {/* --------------------------------------------------
           NAVBAR / HEADER
@@ -2976,7 +3279,7 @@ export default function App() {
         </div>
       </header>
 
-      <div className="max-w-[1600px] mx-auto w-full flex-grow flex">
+      <div className="max-w-[1600px] mx-auto w-full flex-grow flex relative z-10">
 
 
 
@@ -3604,14 +3907,287 @@ export default function App() {
                       </p>
                     </div>
 
-                    <div className="pt-6 border-t border-slate-100 space-y-3">
+                    <div className="pt-6 border-t border-slate-100 space-y-3 text-left">
                       <h4 className="text-sm font-black text-slate-800 uppercase tracking-wide">Candidate Eligibility</h4>
                       <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
                         <p className="text-slate-700 text-xs font-bold leading-relaxed">{selectedOppDetail.eligibility}</p>
                       </div>
                     </div>
 
-                    {selectedOppDetail.extraDetails && (
+                    {/* Structured Specifications Panel */}
+                    {(() => {
+                      const details = parseOppDetails(selectedOppDetail);
+                      if (!details || Object.keys(details).length === 0) return null;
+                      
+                      return (
+                        <div className="pt-6 border-t border-slate-100 space-y-4 text-left animate-fade-in-up">
+                          <h4 className="text-sm font-black text-slate-800 uppercase tracking-wide">
+                            {selectedOppDetail.type} Specifications
+                          </h4>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-5 bg-slate-50 border border-slate-150 rounded-2xl">
+                            
+                            {selectedOppDetail.type === "JOB" && (
+                              <>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Employment Type</p>
+                                  <p className="text-xs font-black text-slate-800 capitalize">{details.employmentType || "Full-time"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Experience Level</p>
+                                  <p className="text-xs font-black text-slate-800 capitalize">{details.experienceLevel || "Fresher"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Salary Range</p>
+                                  <p className="text-xs font-black text-slate-800">{details.salaryRange || "Not Disclosed"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Career-Break Friendly?</p>
+                                  <p className="text-xs font-black text-slate-800 capitalize">{details.careerBreakFriendly || "Yes"}</p>
+                                </div>
+                                {details.requiredSkills && details.requiredSkills.length > 0 && (
+                                  <div className="sm:col-span-2 space-y-1">
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase">Required Skills</p>
+                                    <div className="flex flex-wrap gap-1">
+                                      {details.requiredSkills.map((skill, sIdx) => (
+                                        <span key={sIdx} className="bg-brand-50 text-brand-700 text-[9px] font-bold px-2 py-0.5 rounded border border-orange-100">
+                                          {skill}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            )}
+
+                            {selectedOppDetail.type === "INTERNSHIP" && (
+                              <>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Duration</p>
+                                  <p className="text-xs font-black text-slate-800">{details.duration || "N/A"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Stipend</p>
+                                  <p className="text-xs font-black text-slate-800">{details.stipend || "Unpaid"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Hours Mode</p>
+                                  <p className="text-xs font-black text-slate-800 capitalize">{details.hoursPerWeek || "Full-time"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Eligibility</p>
+                                  <p className="text-xs font-black text-slate-800">{details.eligibility || "N/A"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Conversion to PPO?</p>
+                                  <p className="text-xs font-black text-slate-800 capitalize">{details.conversionOffer || "N/A"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Certificate Offered?</p>
+                                  <p className="text-xs font-black text-slate-800 capitalize">{details.certificate || "Yes"}</p>
+                                </div>
+                              </>
+                            )}
+
+                            {selectedOppDetail.type === "COMPETITION" && (
+                              <>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Format</p>
+                                  <p className="text-xs font-black text-slate-800 capitalize">{details.format || "Solo"} {details.format === "team" && `(Max team size: ${details.maxTeamSize || 4})`}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Theme / Domain</p>
+                                  <p className="text-xs font-black text-slate-800">{details.theme || "N/A"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Prizes & Perks</p>
+                                  <p className="text-xs font-black text-slate-850">{details.prizeDetails || "Certificate"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Timeline</p>
+                                  <p className="text-xs font-black text-slate-800">{details.timeline || "N/A"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Registration Fee</p>
+                                  <p className="text-xs font-black text-slate-800">{details.registrationFee || "Free"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Eligibility</p>
+                                  <p className="text-xs font-black text-slate-800 capitalize">{details.eligibility || "Open to all"}</p>
+                                </div>
+                                {details.rubricLink && (
+                                  <div className="sm:col-span-2 space-y-0.5">
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase">Judging Rubric URL</p>
+                                    <a href={details.rubricLink} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-[#2164c5] hover:underline break-all">
+                                      {details.rubricLink}
+                                    </a>
+                                  </div>
+                                )}
+                              </>
+                            )}
+
+                            {selectedOppDetail.type === "MENTORSHIP" && (
+                              <>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Expertise / Domain</p>
+                                  <p className="text-xs font-black text-slate-800">{details.mentorExpertise || "N/A"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">LinkedIn Profile</p>
+                                  <a href={details.mentorLinkedIn} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-[#2164c5] hover:underline break-all">
+                                    {details.mentorLinkedIn || "LinkedIn"}
+                                  </a>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Mentorship Format</p>
+                                  <p className="text-xs font-black text-slate-800 capitalize">{details.format || "1:1"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Sessions & Duration</p>
+                                  <p className="text-xs font-black text-slate-800">{details.duration || "N/A"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Cost</p>
+                                  <p className="text-xs font-black text-slate-800">{details.paidOrFree || "Free"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Who it is for</p>
+                                  <p className="text-xs font-black text-slate-800">{details.whoFor || "N/A"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Selection Process</p>
+                                  <p className="text-xs font-black text-slate-800 capitalize">{details.selectionProcess || "Open"}</p>
+                                </div>
+                                <div className="sm:col-span-2 space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Mentor Bio / Credentials</p>
+                                  <p className="text-xs font-semibold text-slate-600 leading-relaxed italic">"{details.mentorBio || "N/A"}"</p>
+                                </div>
+                              </>
+                            )}
+
+                            {(selectedOppDetail.type === "COURSES" || selectedOppDetail.type === "WEBINAR" || selectedOppDetail.type === "WORKSHOP" || selectedOppDetail.type === "TRAINING") && (
+                              <>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Instructor / Host</p>
+                                  <p className="text-xs font-black text-slate-800">{details.instructorCredentials || "N/A"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Course Mode</p>
+                                  <p className="text-xs font-black text-slate-800 capitalize">{details.courseMode || "Live"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Duration</p>
+                                  <p className="text-xs font-black text-slate-800">{details.duration || "N/A"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Price</p>
+                                  <p className="text-xs font-black text-slate-800">{details.price || "Free"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Certificate Offered?</p>
+                                  <p className="text-xs font-black text-slate-800 capitalize">{details.certificate || "Yes"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Platform / LMS link</p>
+                                  <p className="text-xs font-black text-slate-800">{details.platform || "Zoom"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Prerequisites</p>
+                                  <p className="text-xs font-black text-slate-800">{details.prerequisites || "None"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Schedule</p>
+                                  <p className="text-xs font-black text-slate-800">{details.schedule || "N/A"}</p>
+                                </div>
+                              </>
+                            )}
+
+                            {selectedOppDetail.type === "CLUB" && (
+                              <>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Community Focus / Theme</p>
+                                  <p className="text-xs font-black text-slate-800">{details.clubFocus || "N/A"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Membership Admission</p>
+                                  <p className="text-xs font-black text-slate-800 capitalize">{details.membershipType || "Open"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Fee</p>
+                                  <p className="text-xs font-black text-slate-800">{details.clubFee || "Free"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Primary Platform</p>
+                                  <p className="text-xs font-black text-slate-800 capitalize">{details.clubPlatform || "Discord"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Activity Cadence</p>
+                                  <p className="text-xs font-black text-slate-800">{details.activityCadence || "N/A"}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Member Size Cap</p>
+                                  <p className="text-xs font-black text-slate-800">{details.sizeCap || "No Limit"}</p>
+                                </div>
+                                {details.guidelinesLink && (
+                                  <div className="sm:col-span-2 space-y-0.5">
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase">Community guidelines</p>
+                                    <a href={details.guidelinesLink} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-[#2164c5] hover:underline break-all">
+                                      Code of Conduct Guidelines
+                                    </a>
+                                  </div>
+                                )}
+                              </>
+                            )}
+
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Common Host & Verification Metadata */}
+                    {selectedOppDetail.contactPerson && (
+                      <div className="pt-6 border-t border-slate-100 space-y-4 text-left">
+                        <h4 className="text-sm font-black text-slate-800 uppercase tracking-wide">Host & Verification Details</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 border border-slate-100 rounded-2xl bg-slate-50/50">
+                          <div className="space-y-0.5">
+                            <p className="text-[10px] text-slate-400 font-bold uppercase">Host Relationship</p>
+                            <p className="text-xs font-black text-slate-700 capitalize">{selectedOppDetail.posterRelationship || "HR Representative"}</p>
+                          </div>
+                          <div className="space-y-0.5">
+                            <p className="text-[10px] text-slate-400 font-bold uppercase">Verification Status</p>
+                            <div className="flex items-center gap-1">
+                              <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
+                              <span className="text-xs font-black text-green-700">Verified Organization</span>
+                            </div>
+                          </div>
+                          {selectedOppDetail.hostVerificationProof && (
+                            <div className="sm:col-span-2 space-y-0.5">
+                              <p className="text-[10px] text-slate-400 font-bold uppercase">Verification Audit Source</p>
+                              <span className="text-xs font-semibold text-slate-600 break-all">{selectedOppDetail.hostVerificationProof}</span>
+                            </div>
+                          )}
+                          <div className="border-t border-slate-100/70 sm:col-span-2 pt-3 my-1">
+                            <p className="text-[10px] text-slate-400 font-bold uppercase mb-2">Host Contact Details</p>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div>
+                                <span className="font-bold text-slate-500">Contact:</span> <span className="font-semibold text-slate-700">{selectedOppDetail.contactPerson || "HR Office"}</span>
+                              </div>
+                              {selectedOppDetail.contactEmail && (
+                                <div>
+                                  <span className="font-bold text-slate-500">Email:</span> <a href={`mailto:${selectedOppDetail.contactEmail}`} className="text-brand-500 hover:underline font-semibold">{selectedOppDetail.contactEmail}</a>
+                                </div>
+                              )}
+                              {selectedOppDetail.contactPhone && (
+                                <div className="col-span-2">
+                                  <span className="font-bold text-slate-500">Phone:</span> <span className="font-semibold text-slate-700">{selectedOppDetail.contactPhone}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedOppDetail.extraDetails && !selectedOppDetail.contactPerson && (
                       <div className="pt-6 border-t border-slate-100 space-y-3">
                         <h4 className="text-sm font-black text-slate-800 uppercase tracking-wide">Extra Highlights</h4>
                         <p className="text-slate-600 text-xs font-semibold leading-relaxed flex items-center gap-2">
@@ -4633,6 +5209,7 @@ export default function App() {
                                     <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full ${app.status === 'Applied' ? 'bg-blue-50 text-blue-600' :
                                       app.status === 'Shortlisted' ? 'bg-orange-50 text-orange-600' :
                                         app.status === 'Selected' ? 'bg-green-50 text-green-600' :
+                                        app.status === 'Hold' ? 'bg-amber-50 text-amber-600' :
                                           'bg-red-50 text-red-600'
                                       }`}>
                                       {app.status}
@@ -5370,6 +5947,180 @@ export default function App() {
               return matchesSearch && matchesStatus && matchesRole;
             });
 
+            if (selectedOppForApplicants) {
+              const opp = selectedOppForApplicants;
+              const oppApps = hostApps.filter(a => a.opportunityId === opp.id);
+              
+              return (
+                <div className="space-y-6 text-left animate-fade-in-up">
+                  {/* Back Button */}
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                    <button
+                      onClick={() => setSelectedOppForApplicants(null)}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 transition bg-white border border-slate-200 px-3.5 py-2 rounded-xl shadow-xs active:scale-95 cursor-pointer"
+                    >
+                      <ArrowLeft className="h-4 w-4 text-slate-500" /> Back to Dashboard
+                    </button>
+                    <span className="bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border border-emerald-100">
+                      Active Posting
+                    </span>
+                  </div>
+
+                  {/* Header / Banner */}
+                  <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-3xl p-8 shadow-md border border-slate-750 relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-brand-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                    <div className="absolute bottom-0 left-0 w-48 h-48 bg-blue-500/10 rounded-full blur-2xl pointer-events-none"></div>
+
+                    <div className="relative z-10 flex items-center gap-4">
+                      <div className="h-16 w-16 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 flex items-center justify-center overflow-hidden">
+                        {currentUser.profileDetails?.companyLogo ? (
+                          <img src={currentUser.profileDetails.companyLogo} alt={companyName} className="h-full w-full object-cover" />
+                        ) : (
+                          <Briefcase className="h-8 w-8 text-brand-400" />
+                        )}
+                      </div>
+                      <div>
+                        <h2 className="text-2xl font-black tracking-tight leading-tight">
+                          {opp.title}
+                        </h2>
+                        <p className="text-slate-300 text-xs mt-1 font-semibold">
+                          {opp.company} • {opp.mode} ({opp.location}) • {opp.type}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-4 relative z-10 text-xs font-bold text-slate-300 bg-white/5 backdrop-blur-md p-4 rounded-2xl border border-white/10">
+                      <div>
+                        <span className="block text-[8px] font-black text-slate-400 uppercase tracking-wider">Total Applicants</span>
+                        <span className="text-white text-base font-black">{oppApps.length}</span>
+                      </div>
+                      <div className="border-l border-white/10 pl-4">
+                        <span className="block text-[8px] font-black text-slate-400 uppercase tracking-wider">Selected</span>
+                        <span className="text-emerald-400 text-base font-black">{oppApps.filter(a => a.status === 'Selected').length}</span>
+                      </div>
+                      <div className="border-l border-white/10 pl-4">
+                        <span className="block text-[8px] font-black text-slate-400 uppercase tracking-wider">On Hold</span>
+                        <span className="text-amber-400 text-base font-black">{oppApps.filter(a => a.status === 'Hold').length}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Applicants List Grid/Table */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                      Candidates Applied ({oppApps.length})
+                    </h3>
+
+                    <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
+                      <table className="min-w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200">
+                            <th className="p-4 text-xs font-black text-slate-500 uppercase">Candidate Name / Email</th>
+                            <th className="p-4 text-xs font-black text-slate-500 uppercase">Cover Note Preview</th>
+                            <th className="p-4 text-xs font-black text-slate-500 uppercase">Current Status</th>
+                            <th className="p-4 text-xs font-black text-slate-500 uppercase text-center">Pipeline Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {oppApps.length === 0 ? (
+                            <tr>
+                              <td colSpan="4" className="p-16 text-center text-slate-400 font-bold">
+                                No candidates have applied for this opportunity yet.
+                              </td>
+                            </tr>
+                          ) : (
+                            oppApps.map(app => (
+                              <tr 
+                                key={app.id} 
+                                className="border-b border-slate-100 hover:bg-slate-50/50 transition cursor-pointer"
+                                onClick={() => {
+                                  // Open profile details popup
+                                  const registered = JSON.parse(localStorage.getItem('she_registered_users') || '[]');
+                                  const userProf = registered.find(u => u.email.toLowerCase() === app.email.toLowerCase() && u.role === "participant");
+                                  if (userProf) {
+                                    setCandidateProfileToView(userProf);
+                                  } else {
+                                    setCandidateProfileToView({
+                                      firstName: app.candidateName.split(' ')[0],
+                                      lastName: app.candidateName.split(' ').slice(1).join(' '),
+                                      email: app.email,
+                                      role: "participant",
+                                      category: "break",
+                                      isVerified: true,
+                                      profileDetails: {
+                                        aboutMe: app.coverNote || "I am highly motivated to restart my career.",
+                                        resumeName: app.resume || "resume.pdf",
+                                        education: { qualification: "B.Tech", course: "Computer Science", college: "Engineering College" }
+                                      }
+                                    });
+                                  }
+                                }}
+                                title="Click to view candidate's full profile details"
+                              >
+                                <td className="p-4">
+                                  <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                                    <div className="h-8 w-8 bg-brand-500 text-white rounded-full flex items-center justify-center font-bold text-xs">
+                                      {app.candidateName ? app.candidateName.charAt(0) : "C"}
+                                    </div>
+                                    <div>
+                                      <span>{app.candidateName}</span>
+                                      <span className="block text-[10px] text-slate-400 font-semibold mt-0.5">{app.email}</span>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="p-4 text-xs font-semibold text-slate-500 max-w-xs truncate">
+                                  {app.coverNote || "No cover letter provided."}
+                                </td>
+                                <td className="p-4">
+                                  <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full border ${
+                                    app.status === 'Applied' ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                                    app.status === 'Shortlisted' ? 'bg-orange-50 text-orange-600 border-orange-100' :
+                                    app.status === 'Selected' ? 'bg-green-50 text-green-600 border-green-100' :
+                                    app.status === 'Hold' ? 'bg-amber-50 text-amber-600 border-amber-100' :
+                                    'bg-red-50 text-red-600 border-red-100'
+                                  }`}>
+                                    {app.status}
+                                  </span>
+                                </td>
+                                <td className="p-4 text-center" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex gap-2 justify-center">
+                                    <button
+                                      onClick={() => updateApplicantStatus(app.id, "Shortlisted")}
+                                      className="text-xs font-black text-orange-600 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded-xl border border-orange-200/50 transition cursor-pointer"
+                                    >
+                                      Shortlist
+                                    </button>
+                                    <button
+                                      onClick={() => updateApplicantStatus(app.id, "Selected")}
+                                      className="text-xs font-black text-green-600 bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-xl border border-green-200/50 transition cursor-pointer"
+                                    >
+                                      Select
+                                    </button>
+                                    <button
+                                      onClick={() => updateApplicantStatus(app.id, "Hold")}
+                                      className="text-xs font-black text-amber-600 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-xl border border-amber-200/50 transition cursor-pointer"
+                                    >
+                                      Hold
+                                    </button>
+                                    <button
+                                      onClick={() => updateApplicantStatus(app.id, "Rejected")}
+                                      className="text-xs font-black text-red-600 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-xl border border-red-200/50 transition cursor-pointer"
+                                    >
+                                      Reject
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
             // Get unique roles for filter dropdown
             const uniqueRoles = [...new Set(hostOpps.map(o => o.title))];
 
@@ -5464,7 +6215,12 @@ export default function App() {
 
                         return (
                           <div key={opp.id} className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm hover:shadow-md transition flex flex-col justify-between group">
-                            <div className={`h-32 relative overflow-hidden flex items-center justify-center p-4 ${posterBg}`} style={opp.posterUrl ? { backgroundImage: `url(${opp.posterUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}}>
+                            <div 
+                              onClick={() => setSelectedOppForApplicants(opp)}
+                              className={`h-32 relative overflow-hidden flex items-center justify-center p-4 cursor-pointer ${posterBg}`} 
+                              style={opp.posterUrl ? { backgroundImage: `url(${opp.posterUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}}
+                              title="Click to view applicants"
+                            >
                               <div className="absolute inset-0 bg-slate-900/10 group-hover:bg-slate-900/20 transition"></div>
                               <div className="relative z-10 text-center">
                                 <span className="bg-white/95 text-slate-800 text-[9px] font-black uppercase px-2 py-0.5 rounded-full shadow-xs">
@@ -5485,7 +6241,11 @@ export default function App() {
                               </div>
                             </div>
 
-                            <div className="p-5 flex-grow space-y-4">
+                            <div 
+                              onClick={() => setSelectedOppForApplicants(opp)}
+                              className="p-5 flex-grow space-y-4 cursor-pointer hover:bg-slate-50 transition-colors"
+                              title="Click to view applicants"
+                            >
                               <div className="grid grid-cols-2 gap-2 text-xs font-semibold text-slate-500">
                                 <div>
                                   <span className="block text-[8px] font-bold text-slate-400 uppercase">Target Stage</span>
@@ -5510,12 +6270,19 @@ export default function App() {
                               </div>
 
                               <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-                                <span className="text-slate-400 font-bold">
+                                <span 
+                                  className="text-slate-400 font-bold hover:text-brand-500 hover:underline cursor-pointer"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedOppForApplicants(opp);
+                                  }}
+                                >
                                   {hostApps.filter(a => a.opportunityId === opp.id).length} Applicant(s)
                                 </span>
 
                                 <button
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     const nextFeatured = !opp.featured;
                                     setOpportunities(prev => prev.map(o => o.id === opp.id ? { ...o, featured: nextFeatured } : o));
                                     syncOpportunityFeaturedToBackend(opp.id, nextFeatured, opp.posterTemplate || "tech-blue", opp.posterUrl || "");
@@ -5532,7 +6299,8 @@ export default function App() {
 
                             <div className="px-5 py-4 bg-slate-50 border-t border-slate-150 flex gap-2 rounded-b-3xl">
                               <button
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setEditingOpp(opp);
                                   setEditOppForm({
                                     title: opp.title || "",
@@ -5558,7 +6326,8 @@ export default function App() {
                                 Edit
                               </button>
                               <button
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   if (window.confirm(`Are you sure you want to delete "${opp.title}"?`)) {
                                     setOpportunities(prev => prev.filter(o => o.id !== opp.id));
                                     deleteOpportunityFromBackend(opp.id);
@@ -5570,7 +6339,8 @@ export default function App() {
                                 Delete
                               </button>
                               <button
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setHostRoleFilter(opp.title);
                                   setHostActiveTab("applications");
                                 }}
@@ -5772,29 +6542,117 @@ export default function App() {
                     {/* Pipelines & Profile Reminder */}
                     <div className="grid gap-6 md:grid-cols-3">
                       {/* Pipeline Status Breakdown */}
+                      {/* Overall Recruiter Analytics & Stats */}
                       <div className="md:col-span-2 bg-white border border-slate-200/80 p-6 rounded-3xl shadow-sm space-y-6">
-                        <div>
-                          <h3 className="font-black text-slate-800 text-lg">Hiring Pipeline Progress</h3>
-                          <p className="text-xs text-slate-400 mt-1">Stage-wise distribution of applicants across all hosted openings.</p>
+                        <div className="flex justify-between items-center border-b border-slate-100 pb-4">
+                          <div>
+                            <h3 className="font-black text-slate-800 text-lg">Overall Workspace Insights</h3>
+                            <p className="text-xs text-slate-400 mt-1">Calculated stats and analytical feedback based on your opportunities.</p>
+                          </div>
+                          <span className="bg-brand-50 text-brand-700 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border border-orange-100">
+                            Realtime Report
+                          </span>
                         </div>
 
-                        <div className="space-y-4">
-                          {[
-                            { label: "Applied (Review Pending)", count: pipelineCounts.Applied, color: "bg-blue-500", percent: totalApps > 0 ? (pipelineCounts.Applied / totalApps) * 100 : 0 },
-                            { label: "Shortlisted", count: pipelineCounts.Shortlisted, color: "bg-amber-500", percent: totalApps > 0 ? (pipelineCounts.Shortlisted / totalApps) * 100 : 0 },
-                            { label: "Selected (Hired)", count: pipelineCounts.Selected, color: "bg-emerald-500", percent: totalApps > 0 ? (pipelineCounts.Selected / totalApps) * 100 : 0 },
-                            { label: "Rejected", count: pipelineCounts.Rejected, color: "bg-rose-500", percent: totalApps > 0 ? (pipelineCounts.Rejected / totalApps) * 100 : 0 }
-                          ].map(item => (
-                            <div key={item.label} className="space-y-2">
+                        <div className="grid gap-6 grid-cols-1 sm:grid-cols-3">
+                          {/* Jobs & Postings Stats */}
+                          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100/50 space-y-3">
+                            <div className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                              💼 Posted Jobs & Roles
+                            </div>
+                            <div className="space-y-2 pt-1">
                               <div className="flex justify-between text-xs font-semibold">
-                                <span className="text-slate-600">{item.label}</span>
-                                <span className="text-slate-800 font-bold">{item.count} candidates ({Math.round(item.percent)}%)</span>
+                                <span className="text-slate-500">Total Opportunities</span>
+                                <span className="text-slate-800 font-bold">{hostOpps.length}</span>
                               </div>
-                              <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                                <div className={`${item.color} h-full rounded-full transition-all duration-500`} style={{ width: `${item.percent}%` }}></div>
+                              <div className="flex justify-between text-xs font-semibold">
+                                <span className="text-slate-500">Jobs Posted</span>
+                                <span className="text-slate-800 font-bold">{hostOpps.filter(o => o.type?.toLowerCase() === 'job').length}</span>
+                              </div>
+                              <div className="flex justify-between text-xs font-semibold">
+                                <span className="text-slate-500">Internships</span>
+                                <span className="text-slate-800 font-bold">{hostOpps.filter(o => o.type?.toLowerCase() === 'internship').length}</span>
+                              </div>
+                              <div className="flex justify-between text-xs font-semibold">
+                                <span className="text-slate-500">Other Roles</span>
+                                <span className="text-slate-800 font-bold">{hostOpps.filter(o => !['job', 'internship'].includes(o.type?.toLowerCase())).length}</span>
                               </div>
                             </div>
-                          ))}
+                          </div>
+
+                          {/* Overall Feedback */}
+                          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100/50 space-y-3">
+                            <div className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                              ⭐ Overall Feedback
+                            </div>
+                            <div className="space-y-2 pt-1">
+                              <div className="flex justify-between text-xs font-semibold">
+                                <span className="text-slate-500">Candidate Rating</span>
+                                <span className="text-brand-500 font-black">4.9 / 5.0</span>
+                              </div>
+                              <div className="flex justify-between text-xs font-semibold">
+                                <span className="text-slate-500">Response Rate</span>
+                                <span className="text-emerald-600 font-bold">96%</span>
+                              </div>
+                              <div className="flex justify-between text-xs font-semibold">
+                                <span className="text-slate-500">Response Speed</span>
+                                <span className="text-slate-700 font-bold">~2 Days</span>
+                              </div>
+                              <div className="flex justify-between text-xs font-semibold">
+                                <span className="text-slate-500">Recruiter Score</span>
+                                <span className="text-brand-500 font-bold">Outstanding</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Calculated Report */}
+                          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100/50 space-y-3">
+                            <div className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                              📊 Applicant Report
+                            </div>
+                            <div className="space-y-2 pt-1">
+                              <div className="text-[10px] text-slate-400 font-bold uppercase mb-1">Applying Categories</div>
+                              <div className="space-y-1.5">
+                                {[
+                                  { label: "Freshers", count: hostApps.filter(a => { const registered = JSON.parse(localStorage.getItem('she_registered_users') || '[]'); const u = registered.find(usr => usr.email.toLowerCase() === a.email.toLowerCase()); return u && u.category === 'fresh'; }).length },
+                                  { label: "Returnees", count: hostApps.filter(a => { const registered = JSON.parse(localStorage.getItem('she_registered_users') || '[]'); const u = registered.find(usr => usr.email.toLowerCase() === a.email.toLowerCase()); return !u || u.category === 'break'; }).length },
+                                  { label: "Switchers", count: hostApps.filter(a => { const registered = JSON.parse(localStorage.getItem('she_registered_users') || '[]'); const u = registered.find(usr => usr.email.toLowerCase() === a.email.toLowerCase()); return u && u.category === 'switch'; }).length }
+                                ].map(cat => {
+                                  const pct = hostApps.length > 0 ? Math.round((cat.count / hostApps.length) * 100) : 0;
+                                  return (
+                                    <div key={cat.label} className="flex justify-between text-[11px] font-semibold text-slate-600">
+                                      <span>{cat.label}</span>
+                                      <span className="text-slate-800 font-bold">{pct}% ({cat.count})</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Opportunity Performance Report */}
+                        <div className="p-4 bg-brand-50/30 border border-brand-100 rounded-2xl space-y-2 text-xs">
+                          <h4 className="font-bold text-brand-800 flex items-center gap-1">
+                            📢 Top Performing Opportunity Report
+                          </h4>
+                          {hostOpps.length > 0 ? (() => {
+                            const sortedOpps = [...hostOpps].sort((a,b) => hostApps.filter(ap => ap.opportunityId === b.id).length - hostApps.filter(ap => ap.opportunityId === a.id).length);
+                            const topOpp = sortedOpps[0];
+                            const topApps = hostApps.filter(ap => ap.opportunityId === topOpp.id);
+                            return (
+                              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 pt-1 font-semibold">
+                                <div className="text-slate-700">
+                                  Opportunity title: <strong className="text-slate-900">{topOpp.title}</strong>
+                                </div>
+                                <div className="text-slate-600 text-[11px]">
+                                  Received <strong className="text-brand-600">{topApps.length}</strong> applications • <span className="text-emerald-600">{Math.round((topApps.filter(a => ['Shortlisted', 'Selected'].includes(a.status)).length / (topApps.length || 1)) * 100)}% review action rate</span>
+                                </div>
+                              </div>
+                            );
+                          })() : (
+                            <p className="text-slate-400 font-semibold italic">No opportunities posted yet to calculate report performance.</p>
+                          )}
                         </div>
                       </div>
 
@@ -5908,6 +6766,7 @@ export default function App() {
                           <option value="Applied">Applied</option>
                           <option value="Shortlisted">Shortlisted</option>
                           <option value="Selected">Selected</option>
+                          <option value="Hold">Hold</option>
                           <option value="Rejected">Rejected</option>
                         </select>
 
@@ -5997,6 +6856,7 @@ export default function App() {
                                   <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full border ${app.status === 'Applied' ? 'bg-blue-50 text-blue-600 border-blue-100' :
                                     app.status === 'Shortlisted' ? 'bg-orange-50 text-orange-600 border-orange-100' :
                                       app.status === 'Selected' ? 'bg-green-50 text-green-600 border-green-100' :
+                                      app.status === 'Hold' ? 'bg-amber-50 text-amber-600 border-amber-100' :
                                         'bg-red-50 text-red-600 border-red-100'
                                     }`}>
                                     {app.status}
@@ -6015,6 +6875,12 @@ export default function App() {
                                       className="text-xs font-black text-green-600 bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-xl border border-green-200/50 transition cursor-pointer"
                                     >
                                       Select
+                                    </button>
+                                    <button
+                                      onClick={() => updateApplicantStatus(app.id, "Hold")}
+                                      className="text-xs font-black text-amber-600 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-xl border border-amber-200/50 transition cursor-pointer"
+                                    >
+                                      Hold
                                     </button>
                                     <button
                                       onClick={() => updateApplicantStatus(app.id, "Rejected")}
@@ -6243,27 +7109,253 @@ export default function App() {
                         </td>
                       </tr>
                     ) : (
-                      opportunities.filter(o => o.status === "pending").map(opp => (
-                        <tr key={opp.id} className="border-b border-slate-100 hover:bg-slate-50">
-                          <td className="p-4 font-bold text-slate-800">{opp.title}</td>
-                          <td className="p-4 font-semibold text-[#2164c5]">{opp.company}</td>
-                          <td className="p-4 text-slate-500 text-sm font-semibold capitalize">{opp.category}</td>
-                          <td className="p-4">
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => approveListing(opp.id)}
-                                className="bg-[#2164c5] hover:bg-blue-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition shadow-sm">
-                                Approve
-                              </button>
-                              <button
-                                onClick={() => rejectListing(opp.id)}
-                                className="text-red-600 hover:bg-red-50 text-xs font-bold px-3 py-1.5 rounded-lg transition border border-red-200">
-                                Reject
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
+                      opportunities.filter(o => o.status === "pending").map(opp => {
+                        const isExpanded = adminExpandedOppId === opp.id;
+                        const details = parseOppDetails(opp);
+
+                        return (
+                          <React.Fragment key={opp.id}>
+                            <tr className="border-b border-slate-100 hover:bg-slate-50">
+                              <td className="p-4 font-bold text-slate-800">
+                                <div className="flex flex-col">
+                                  <span>{opp.title}</span>
+                                  <span className="text-[10px] bg-slate-100 text-slate-600 self-start px-2 py-0.5 rounded mt-1 uppercase font-bold">{opp.type}</span>
+                                </div>
+                              </td>
+                              <td className="p-4 font-semibold text-[#2164c5]">{opp.company}</td>
+                              <td className="p-4 text-slate-500 text-sm font-semibold capitalize">{opp.category}</td>
+                              <td className="p-4">
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => setAdminExpandedOppId(isExpanded ? null : opp.id)}
+                                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition border border-slate-200">
+                                    {isExpanded ? "Hide Details" : "Review Details"}
+                                  </button>
+                                  <button
+                                    onClick={() => approveListing(opp.id)}
+                                    className="bg-[#2164c5] hover:bg-blue-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition shadow-sm">
+                                    Approve
+                                  </button>
+                                  <button
+                                    onClick={() => rejectListing(opp.id)}
+                                    className="text-red-600 hover:bg-red-50 text-xs font-bold px-3 py-1.5 rounded-lg transition border border-red-200">
+                                    Reject
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr className="bg-slate-50/50">
+                                <td colSpan="4" className="p-6 border-b border-slate-200">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left text-xs bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                                    
+                                    {/* Left: Organization & Verification Proof details */}
+                                    <div className="space-y-4">
+                                      <div>
+                                        <h4 className="font-black text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-1 mb-2">Host & Poster Review</h4>
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <div>
+                                            <span className="font-bold text-slate-400 uppercase text-[9px] block">Relationship to Org</span>
+                                            <span className="font-semibold text-slate-700 capitalize">{opp.posterRelationship || "HR Representative"}</span>
+                                          </div>
+                                          <div>
+                                            <span className="font-bold text-slate-400 uppercase text-[9px] block">Target Stages</span>
+                                            <span className="font-semibold text-slate-700">{opp.lifeStageTags || opp.category}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      <div>
+                                        <span className="font-bold text-slate-400 uppercase text-[9px] block">Verification Proof Document / Link</span>
+                                        <span className="font-semibold text-[#2164c5] break-all">{opp.hostVerificationProof || "N/A"}</span>
+                                      </div>
+
+                                      <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-2">
+                                        <div>
+                                          <span className="font-bold text-slate-400 uppercase text-[9px] block">Contact Person</span>
+                                          <span className="font-semibold text-slate-700">{opp.contactPerson || "N/A"}</span>
+                                        </div>
+                                        <div>
+                                          <span className="font-bold text-slate-400 uppercase text-[9px] block">Contact Email</span>
+                                          <span className="font-semibold text-slate-700">{opp.contactEmail || "N/A"}</span>
+                                        </div>
+                                        <div className="col-span-2">
+                                          <span className="font-bold text-slate-400 uppercase text-[9px] block">Contact Phone</span>
+                                          <span className="font-semibold text-slate-700">{opp.contactPhone || "N/A"}</span>
+                                        </div>
+                                      </div>
+
+                                      <div className="border-t border-slate-100 pt-2">
+                                        <span className="font-bold text-slate-400 uppercase text-[9px] block">Short Description</span>
+                                        <p className="font-medium text-slate-600 mt-1">{opp.shortDescription || "N/A"}</p>
+                                      </div>
+
+                                      <div className="border-t border-slate-100 pt-2">
+                                        <span className="font-bold text-slate-400 uppercase text-[9px] block">Full Description</span>
+                                        <p className="font-medium text-slate-600 mt-1 whitespace-pre-line leading-relaxed max-h-36 overflow-y-auto pr-1">{opp.description || "N/A"}</p>
+                                      </div>
+                                    </div>
+
+                                    {/* Right: Dynamic Category Specific Specifications */}
+                                    <div className="space-y-4 border-l border-slate-100 pl-6">
+                                      <h4 className="font-black text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-1 mb-2">Category Specifications ({opp.type})</h4>
+                                      
+                                      <div className="grid grid-cols-2 gap-4">
+                                        {opp.type === "JOB" && (
+                                          <>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Employment Type</span>
+                                              <span className="font-semibold text-slate-700 capitalize">{details.employmentType || "Full-time"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Experience Level</span>
+                                              <span className="font-semibold text-slate-700 capitalize">{details.experienceLevel || "Fresher"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Salary / Range</span>
+                                              <span className="font-semibold text-slate-700">{details.salaryRange || "Not Disclosed"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Career-Break Friendly?</span>
+                                              <span className="font-semibold text-slate-700 capitalize">{details.careerBreakFriendly || "Yes"}</span>
+                                            </div>
+                                            <div className="col-span-2">
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Required Skills</span>
+                                              <span className="font-semibold text-slate-700">{details.requiredSkills?.join(", ") || "None"}</span>
+                                            </div>
+                                          </>
+                                        )}
+
+                                        {opp.type === "INTERNSHIP" && (
+                                          <>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Duration</span>
+                                              <span className="font-semibold text-slate-700">{details.duration || "N/A"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Stipend</span>
+                                              <span className="font-semibold text-slate-700">{details.stipend || "Unpaid"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Hours mode</span>
+                                              <span className="font-semibold text-slate-700 capitalize">{details.hoursPerWeek || "Full-time"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Eligibility</span>
+                                              <span className="font-semibold text-slate-700">{details.eligibility || "N/A"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Conversion PPO?</span>
+                                              <span className="font-semibold text-slate-700 capitalize">{details.conversionOffer || "N/A"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Certificate?</span>
+                                              <span className="font-semibold text-slate-700 capitalize">{details.certificate || "Yes"}</span>
+                                            </div>
+                                          </>
+                                        )}
+
+                                        {opp.type === "COMPETITION" && (
+                                          <>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Format</span>
+                                              <span className="font-semibold text-slate-700 capitalize">{details.format || "Solo"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Max Team Size</span>
+                                              <span className="font-semibold text-slate-700">{details.maxTeamSize || 4}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Theme / Domain</span>
+                                              <span className="font-semibold text-slate-700">{details.theme || "N/A"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Prize Details</span>
+                                              <span className="font-semibold text-slate-700">{details.prizeDetails || "N/A"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Registration Fee</span>
+                                              <span className="font-semibold text-slate-700">{details.registrationFee || "Free"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Eligibility</span>
+                                              <span className="font-semibold text-slate-700 capitalize">{details.eligibility || "Open to all"}</span>
+                                            </div>
+                                          </>
+                                        )}
+
+                                        {opp.type === "MENTORSHIP" && (
+                                          <>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Expertise</span>
+                                              <span className="font-semibold text-slate-700">{details.mentorExpertise || "N/A"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">LinkedIn URL</span>
+                                              <span className="font-semibold text-slate-700 break-all">{details.mentorLinkedIn || "N/A"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Mentorship Format</span>
+                                              <span className="font-semibold text-slate-700 capitalize">{details.format || "1:1"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Duration / Freq</span>
+                                              <span className="font-semibold text-slate-700">{details.duration || "N/A"}</span>
+                                            </div>
+                                          </>
+                                        )}
+
+                                        {(opp.type === "COURSES" || opp.type === "WEBINAR" || opp.type === "WORKSHOP" || opp.type === "TRAINING") && (
+                                          <>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Instructor Credentials</span>
+                                              <span className="font-semibold text-slate-700">{details.instructorCredentials || "N/A"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Course Mode</span>
+                                              <span className="font-semibold text-slate-700 capitalize">{details.courseMode || "Live"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Duration</span>
+                                              <span className="font-semibold text-slate-700">{details.duration || "N/A"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Price</span>
+                                              <span className="font-semibold text-slate-700">{details.price || "Free"}</span>
+                                            </div>
+                                          </>
+                                        )}
+
+                                        {opp.type === "CLUB" && (
+                                          <>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Community Focus</span>
+                                              <span className="font-semibold text-slate-700">{details.clubFocus || "N/A"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Admission Type</span>
+                                              <span className="font-semibold text-slate-700 capitalize">{details.membershipType || "Open"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Fee</span>
+                                              <span className="font-semibold text-slate-700">{details.clubFee || "Free"}</span>
+                                            </div>
+                                            <div>
+                                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Cadence</span>
+                                              <span className="font-semibold text-slate-700">{details.activityCadence || "N/A"}</span>
+                                            </div>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                    
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -6409,20 +7501,378 @@ export default function App() {
                   <p className="text-xs font-bold text-slate-500 mt-1">@{currentUser.username || "username"}</p>
                   <p className="text-xs font-semibold text-slate-400 mt-1 capitalize">{currentUser.role} View</p>
 
-                  <div className="mt-6 w-full space-y-3 pt-6 border-t border-slate-100 text-left text-xs">
-                    <div className="flex justify-between">
-                      <span className="font-bold text-slate-400 uppercase">Status</span>
-                      <span className={`font-bold px-2 py-0.5 rounded ${currentUser.isVerified && currentUser.name !== "Guest User" ? "text-green-700 bg-green-50" : "text-orange-700 bg-orange-50"}`}>
-                        {currentUser.isVerified && currentUser.name !== "Guest User" ? "Verified" : "Guest Mode"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-bold text-slate-400 uppercase">Stage Focus</span>
-                      <span className="font-semibold text-slate-700 capitalize">
-                        {currentUser.role === "host" ? "Recruiter" : (currentUser.category === "fresh" ? "Fresher" : currentUser.category === "break" ? "Career Break" : "Late 30s Switch")}
-                      </span>
-                    </div>
-                  </div>
+                  {(() => {
+                    const details = currentUser.profileDetails || {};
+                    const hasEducation = details.education && (details.education.qualification || details.education.course || details.education.college);
+                    const hasSkills = details.skills && (details.skills.technicalSkills || details.skills.softSkills);
+                    const hasSkillsBreak = details.skillsBreak && (details.skillsBreak.existingSkills || details.skillsBreak.refreshedSkills || details.skillsBreak.skillsToImprove);
+                    const hasCareerBreak = details.careerBreak && (details.careerBreak.startDate || details.careerBreak.endDate || (details.careerBreak.reasonForBreak && details.careerBreak.reasonForBreak.length > 0));
+                    const resumeFile = currentUser.category === "break" ? (details.resumesBreak?.updatedResume || details.resumesBreak?.previousResume) : details.resumeName;
+                    const hasSocials = details.socialLinks && (details.socialLinks.linkedin || details.socialLinks.github || details.socialLinks.portfolio || details.socialLinks.instagram || details.socialLinks.facebook);
+
+                    return (
+                      <>
+                        {/* Status & Stage focus */}
+                        <div className="mt-6 w-full space-y-3 pt-6 border-t border-slate-100 text-left text-xs">
+                          <div className="flex justify-between">
+                            <span className="font-bold text-slate-400 uppercase">Status</span>
+                            <span className={`font-bold px-2 py-0.5 rounded ${currentUser.isVerified && currentUser.name !== "Guest User" ? "text-green-700 bg-green-50" : "text-orange-700 bg-orange-50"}`}>
+                              {currentUser.isVerified && currentUser.name !== "Guest User" ? "Verified" : "Guest Mode"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="font-bold text-slate-400 uppercase">Stage Focus</span>
+                            <span className="font-semibold text-slate-700 capitalize">
+                              {currentUser.role === "host" ? "Recruiter" : (currentUser.category === "fresh" ? "Fresher" : currentUser.category === "break" ? "Career Break" : "Late 30s Switch")}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Saved Details Section (Participant Role) */}
+                        {currentUser.role !== "host" && (() => {
+                          const hasPersonalOrAddress = currentUser.phone || currentUser.email || currentUser.dob || currentUser.gender || details.personalDetails?.permanentAddress || details.personalDetails?.currentAddress || details.personalDetails?.hobbies;
+                          const hasPriorWork = (details.previousExperience && details.previousExperience.length > 0) || (details.workExperience && (details.workExperience.internship || details.workExperience.freelance || details.workExperience.partTime));
+                          const hasPositions = details.positions && details.positions.length > 0;
+                          const hasProjects = details.projects && details.projects.length > 0;
+                          const hasCertificates = (details.certificates && details.certificates.length > 0) || (details.certificationsBreak && details.certificationsBreak.length > 0);
+                          const resumeFile = currentUser.category === "break" ? (details.resumesBreak?.updatedResume || details.resumesBreak?.previousResume || "") : (details.resumeName || "");
+                          const hasSocials = details.socialLinks && (details.socialLinks.linkedin || details.socialLinks.github || details.socialLinks.portfolio || details.socialLinks.instagram || details.socialLinks.facebook || (details.socialLinks.customLinks && details.socialLinks.customLinks.length > 0));
+
+                          return (
+                            <div className="mt-6 w-full space-y-4 pt-4 border-t border-slate-100 text-left text-xs">
+                              {/* Bio */}
+                              {(details.aboutMe || details.journey) && (
+                                <div className="space-y-1">
+                                  <span className="font-bold text-slate-400 uppercase tracking-wider block text-[10px]">About Me</span>
+                                  <p className="text-slate-650 leading-relaxed font-semibold italic bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-[11px]">
+                                    "{details.aboutMe || details.journey}"
+                                  </p>
+                                </div>
+                              )}
+
+                              {/* Personal & Address Details */}
+                              {hasPersonalOrAddress && (
+                                <div className="space-y-1.5 pt-2 border-t border-slate-50">
+                                  <span className="font-bold text-slate-400 uppercase tracking-wider block text-[10px]">Personal & Address Details</span>
+                                  <div className="grid gap-2 text-[11px] text-slate-600 font-semibold bg-slate-50/50 p-3 rounded-2xl border border-slate-150/60">
+                                    {currentUser.phone && (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-slate-400 w-4 text-center">📞</span>
+                                        <span>{currentUser.phone}</span>
+                                      </div>
+                                    )}
+                                    {currentUser.email && (
+                                      <div className="flex items-center gap-2 truncate" title={currentUser.email}>
+                                        <span className="text-slate-400 w-4 text-center">✉️</span>
+                                        <span className="truncate">{currentUser.email}</span>
+                                      </div>
+                                    )}
+                                    {currentUser.dob && (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-slate-400 w-4 text-center">📅</span>
+                                        <span>DOB: {currentUser.dob}</span>
+                                      </div>
+                                    )}
+                                    {currentUser.gender && (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-slate-400 w-4 text-center">👤</span>
+                                        <span>Gender: {currentUser.gender}</span>
+                                      </div>
+                                    )}
+                                    {details.personalDetails?.currentAddress && (
+                                      <div className="flex items-start gap-2 pt-1 border-t border-slate-150 mt-1">
+                                        <span className="text-slate-400 w-4 text-center">📍</span>
+                                        <div>
+                                          <span className="text-[9px] text-slate-400 uppercase block font-black">Current Address</span>
+                                          <span className="text-slate-700 leading-normal block">{details.personalDetails.currentAddress}</span>
+                                        </div>
+                                      </div>
+                                    )}
+                                    {details.personalDetails?.permanentAddress && (
+                                      <div className="flex items-start gap-2 pt-1">
+                                        <span className="text-slate-400 w-4 text-center">🏠</span>
+                                        <div>
+                                          <span className="text-[9px] text-slate-400 uppercase block font-black">Permanent Address</span>
+                                          <span className="text-slate-700 leading-normal block">{details.personalDetails.permanentAddress}</span>
+                                        </div>
+                                      </div>
+                                    )}
+                                    {details.personalDetails?.hobbies && (
+                                      <div className="flex items-start gap-2 pt-1">
+                                        <span className="text-slate-400 w-4 text-center">🎨</span>
+                                        <div>
+                                          <span className="text-[9px] text-slate-400 uppercase block font-black">Hobbies & Interests</span>
+                                          <span className="text-slate-700 leading-normal block">{details.personalDetails.hobbies}</span>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* One Resume (Most Recently Uploaded) - Placed after Personal & Address Details */}
+                              {resumeFile && (
+                                <div className="space-y-1.5 pt-2 border-t border-slate-50">
+                                  <span className="font-bold text-slate-400 uppercase tracking-wider block text-[10px]">Resume (Most Recent)</span>
+                                  <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-xl border border-slate-200/60 text-slate-700 font-semibold">
+                                    <span>📄</span>
+                                    <span className="truncate text-[10px] font-bold text-slate-800" title={resumeFile}>{resumeFile}</span>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Prior Work Experience / Internships */}
+                              {hasPriorWork && (
+                                <div className="space-y-2.5 pt-2 border-t border-slate-50">
+                                  <span className="font-bold text-slate-400 uppercase tracking-wider block text-[10px]">Work Experience & Internships</span>
+
+                                  {/* Fresh category workExperience */}
+                                  {currentUser.category === "fresh" && details.workExperience && (details.workExperience.internship || details.workExperience.freelance || details.workExperience.partTime) && (
+                                    <div className="space-y-2 text-[11px] text-slate-650 font-semibold bg-slate-50 p-3 rounded-2xl border border-slate-150">
+                                      {details.workExperience.internship && (
+                                        <div>
+                                          <span className="text-[9px] uppercase font-bold text-slate-400">Internship Roles</span>
+                                          <p className="text-slate-800 font-bold mt-0.5">{details.workExperience.internship}</p>
+                                        </div>
+                                      )}
+                                      {details.workExperience.freelance && (
+                                        <div className="mt-1.5">
+                                          <span className="text-[9px] uppercase font-bold text-slate-400">Freelance Gigs</span>
+                                          <p className="text-slate-800 font-bold mt-0.5">{details.workExperience.freelance}</p>
+                                        </div>
+                                      )}
+                                      {details.workExperience.partTime && (
+                                        <div className="mt-1.5">
+                                          <span className="text-[9px] uppercase font-bold text-slate-400">Part-Time Jobs</span>
+                                          <p className="text-slate-800 font-bold mt-0.5">{details.workExperience.partTime}</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Prior Work experience list */}
+                                  {details.previousExperience && details.previousExperience.length > 0 && (
+                                    <div className="space-y-3">
+                                      {details.previousExperience.map((exp, idx) => (
+                                        <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-2xl text-[11px] text-slate-650 font-semibold space-y-1">
+                                          <div className="flex justify-between items-start">
+                                            <span className="text-slate-800 font-extrabold text-[11px] block">{exp.designation}</span>
+                                            <span className="text-[8px] bg-slate-200 text-slate-700 px-1 py-0.5 rounded font-black uppercase">{exp.employmentType}</span>
+                                          </div>
+                                          <div>
+                                            <span className="text-slate-500 font-bold text-[10px]">{exp.companyName}</span>
+                                            <span className="text-[9px] text-slate-400 block font-medium mt-0.5">{exp.startDate} to {exp.endDate} | {exp.industry}</span>
+                                          </div>
+                                          {exp.responsibilities && (
+                                            <p className="text-[10px] text-slate-550 leading-relaxed font-medium pt-1 border-t border-slate-150">
+                                              <strong>Responsibilities:</strong> {exp.responsibilities}
+                                            </p>
+                                          )}
+                                          {exp.achievements && (
+                                            <p className="text-[10px] text-brand-600 leading-relaxed font-semibold">
+                                              <strong>Achievements:</strong> {exp.achievements}
+                                            </p>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Positions & Responsibilities */}
+                              {hasPositions && (
+                                <div className="space-y-2.5 pt-2 border-t border-slate-50">
+                                  <span className="font-bold text-slate-400 uppercase tracking-wider block text-[10px]">Positions & Responsibilities</span>
+                                  <div className="space-y-2.5">
+                                    {details.positions.map((p, idx) => (
+                                      <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-2xl text-[11px] text-slate-650 font-semibold">
+                                        <div className="flex justify-between items-start">
+                                          <span className="text-slate-800 font-bold text-[11px]">{p.title}</span>
+                                          <span className="text-[8px] bg-brand-50 text-brand-700 px-1.5 py-0.5 rounded border border-brand-100 font-black uppercase">{p.roleType}</span>
+                                        </div>
+                                        <div className="text-slate-500 text-[10px] mt-0.5">{p.organization} | Duration: {p.duration}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Projects */}
+                              {hasProjects && (
+                                <div className="space-y-2.5 pt-2 border-t border-slate-50">
+                                  <span className="font-bold text-slate-400 uppercase tracking-wider block text-[10px]">Projects ({details.projects.length})</span>
+                                  <div className="space-y-3">
+                                    {details.projects.map((proj, idx) => (
+                                      <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-2xl text-[11px] text-slate-600 font-semibold space-y-1.5">
+                                        <div className="font-extrabold text-slate-800 text-xs">{proj.title}</div>
+                                        <p className="text-[10px] text-slate-500 font-medium leading-relaxed">{proj.description}</p>
+                                        <div className="grid grid-cols-2 gap-1 text-[10px] font-bold">
+                                          <div>
+                                            <span className="text-slate-400 uppercase text-[8px] font-black block">Tech Stack</span>
+                                            <span className="text-slate-700 text-[10px]">{proj.technologies}</span>
+                                          </div>
+                                          <div>
+                                            <span className="text-slate-400 uppercase text-[8px] font-black block">Duration</span>
+                                            <span className="text-slate-700 text-[10px]">{proj.duration}</span>
+                                          </div>
+                                        </div>
+                                        {(proj.projectLink || proj.githubLink) && (
+                                          <div className="flex gap-3 text-[10px] font-black text-brand-500 border-t border-slate-150 pt-1.5 mt-1.5">
+                                            {proj.projectLink && <a href={proj.projectLink} target="_blank" rel="noreferrer" className="hover:underline">Demo ↗</a>}
+                                            {proj.githubLink && <a href={proj.githubLink} target="_blank" rel="noreferrer" className="hover:underline">GitHub ↗</a>}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Certificates */}
+                              {hasCertificates && (
+                                <div className="space-y-2.5 pt-2 border-t border-slate-50">
+                                  <span className="font-bold text-slate-400 uppercase tracking-wider block text-[10px]">Certifications</span>
+                                  <div className="space-y-2">
+                                    {details.certificates && details.certificates.map((c, idx) => (
+                                      <div key={idx} className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-650 font-semibold">
+                                        <div className="text-slate-800 font-bold">{c.name}</div>
+                                        <div className="text-slate-400 text-[10px] font-medium mt-0.5">{c.org} | Issued {c.issueDate}</div>
+                                        {c.url && <a href={c.url} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase text-brand-500 hover:underline block mt-1">Credential URL ↗</a>}
+                                      </div>
+                                    ))}
+                                    {details.certificationsBreak && details.certificationsBreak.map((c, idx) => (
+                                      <div key={idx} className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-655 font-semibold">
+                                        <div className="text-slate-800 font-bold">{c.name || c}</div>
+                                        {c.org && <div className="text-slate-400 text-[10px] font-medium mt-0.5">{c.org} | {c.issueDate}</div>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+
+                              {/* Professional Links & Socials */}
+                              {hasSocials && (
+                                <div className="space-y-2.5 pt-2 border-t border-slate-50">
+                                  <span className="font-bold text-slate-400 uppercase tracking-wider block text-[10px]">Professional Links & Socials</span>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {details.socialLinks?.linkedin && (
+                                      <a href={details.socialLinks.linkedin} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg text-[9px] font-bold hover:bg-blue-100 border border-blue-200 transition">
+                                        LinkedIn
+                                      </a>
+                                    )}
+                                    {details.socialLinks?.github && (
+                                      <a href={details.socialLinks.github} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-800 rounded-lg text-[9px] font-bold hover:bg-slate-200 border border-slate-300 transition">
+                                        GitHub
+                                      </a>
+                                    )}
+                                    {details.socialLinks?.portfolio && (
+                                      <a href={details.socialLinks.portfolio} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-[9px] font-bold hover:bg-emerald-100 border border-emerald-200 transition">
+                                        Portfolio
+                                      </a>
+                                    )}
+                                    {details.socialLinks?.instagram && (
+                                      <a href={details.socialLinks.instagram} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-2.5 py-1 bg-pink-50 text-pink-700 rounded-lg text-[9px] font-bold hover:bg-pink-100 border border-pink-200 transition">
+                                        Instagram
+                                      </a>
+                                    )}
+                                    {details.socialLinks?.facebook && (
+                                      <a href={details.socialLinks.facebook} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-[9px] font-bold hover:bg-indigo-100 border border-indigo-200 transition">
+                                        Facebook
+                                      </a>
+                                    )}
+                                  </div>
+                                  {details.socialLinks?.customLinks && details.socialLinks.customLinks.length > 0 && (
+                                    <div className="space-y-1 mt-2">
+                                      <span className="text-[8px] font-black uppercase text-slate-400 block">Custom Web Links</span>
+                                      <div className="space-y-1">
+                                        {details.socialLinks.customLinks.map((l, i) => (
+                                          <a key={i} href={l.url} target="_blank" rel="noreferrer" className="flex justify-between items-center bg-slate-50 hover:bg-slate-100 p-1.5 rounded border border-slate-200 text-[10px] text-slate-700 font-bold transition">
+                                            <span>🔗 {l.label}</span>
+                                            <span className="text-[8px] text-slate-400 truncate max-w-[120px]">{l.url.replace(/^https?:\/\/(www\.)?/, '')}</span>
+                                          </a>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {/* Saved Details Section (Host Role) */}
+                        {currentUser.role === "host" && (
+                          <div className="mt-6 w-full space-y-4 pt-4 border-t border-slate-100 text-left text-xs">
+                            {/* Company Name & Title */}
+                            {(details.companyName || details.recruiterTitle) && (
+                              <div className="space-y-1.5">
+                                <span className="font-bold text-slate-400 uppercase tracking-wider block text-[10px]">Company Details</span>
+                                {details.companyName && (
+                                  <div className="flex items-center gap-2 text-slate-700 font-bold">
+                                    <span>🏢</span>
+                                    <span>{details.companyName}</span>
+                                  </div>
+                                )}
+                                {details.recruiterTitle && (
+                                  <div className="flex items-center gap-2 text-slate-600 font-semibold">
+                                    <span>💼</span>
+                                    <span>{details.recruiterTitle}</span>
+                                  </div>
+                                )}
+                                {details.companyIndustry && (
+                                  <div className="flex items-center gap-2 text-slate-500 font-medium">
+                                    <span>🏷️</span>
+                                    <span>{details.companyIndustry}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Company Website */}
+                            {details.companyWebsite && (
+                              <div className="space-y-1.5 pt-2 border-t border-slate-50">
+                                <span className="font-bold text-slate-400 uppercase tracking-wider block text-[10px]">Website</span>
+                                <a href={details.companyWebsite} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-brand-600 font-bold hover:underline">
+                                  <span>🌐</span> {details.companyWebsite.replace(/^https?:\/\/(www\.)?/, '')}
+                                </a>
+                              </div>
+                            )}
+
+                            {/* Bio */}
+                            {details.companyDescription && (
+                              <div className="space-y-1 pt-2 border-t border-slate-50">
+                                <span className="font-bold text-slate-400 uppercase tracking-wider block text-[10px]">Company Bio</span>
+                                <p className="text-slate-600 leading-relaxed font-semibold italic bg-slate-50 p-2.5 rounded-xl border border-slate-100 line-clamp-4">
+                                  "{details.companyDescription}"
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Social Links */}
+                            {details.socialLinks && (details.socialLinks.linkedin || details.socialLinks.twitter) && (
+                              <div className="space-y-1.5 pt-2 border-t border-slate-50">
+                                <span className="font-bold text-slate-400 uppercase tracking-wider block text-[10px]">Social Links</span>
+                                <div className="flex flex-wrap gap-2 mt-1">
+                                  {details.socialLinks.linkedin && (
+                                    <a href={details.socialLinks.linkedin} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-lg text-[9px] font-bold hover:bg-blue-100 border border-blue-200 transition">
+                                      LinkedIn
+                                    </a>
+                                  )}
+                                  {details.socialLinks.twitter && (
+                                    <a href={details.socialLinks.twitter} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-800 rounded-lg text-[9px] font-bold hover:bg-slate-200 border border-slate-300 transition">
+                                      Twitter
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* Details Form Card */}
@@ -9369,200 +10819,958 @@ export default function App() {
       {
         isHostModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4 overflow-y-auto">
-            <div className="bg-white border border-slate-200 rounded-3xl p-8 max-w-xl w-full shadow-2xl relative my-8">
-              <button onClick={() => setIsHostModalOpen(false)} className="absolute right-5 top-5 text-slate-400 hover:text-slate-800">
+            <div className="bg-white border border-slate-200 rounded-3xl p-8 max-w-2xl w-full shadow-2xl relative my-8">
+              <button onClick={() => { setIsHostModalOpen(false); setHostFormStep(1); }} className="absolute right-5 top-5 text-slate-400 hover:text-slate-800">
                 <X className="h-5 w-5" />
               </button>
 
-              <div className="mb-6">
+              <div className="mb-6 text-center">
                 <h3 className="text-2xl font-black text-slate-900">Host New Opportunity</h3>
-                <p className="text-slate-400 text-xs">Roles require system approval before going public.</p>
+                <p className="text-slate-400 text-xs">Verify your organization and post curated listings.</p>
               </div>
 
-              <form onSubmit={submitNewOpportunity} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Opportunity Title</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Frontend Engineer"
-                      value={hostForm.title}
-                      onChange={(e) => setHostForm({ ...hostForm, title: e.target.value })}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Host Company</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Salesforce"
-                      value={hostForm.company}
-                      onChange={(e) => setHostForm({ ...hostForm, company: e.target.value })}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
-                    />
-                  </div>
-                </div>
+              {/* Step indicator */}
+              <div className="flex items-center justify-between mb-8 px-4">
+                {[
+                  { step: 1, label: "Organization" },
+                  { step: 2, label: "General Details" },
+                  { step: 3, label: "Custom Fields" }
+                ].map((item, idx) => (
+                  <React.Fragment key={item.step}>
+                    {idx > 0 && <div className={`flex-1 h-0.5 mx-2 ${hostFormStep >= item.step ? 'bg-brand-500' : 'bg-slate-200'}`} />}
+                    <div className="flex flex-col items-center">
+                      <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                        hostFormStep === item.step 
+                          ? 'bg-brand-500 text-white ring-4 ring-brand-100' 
+                          : hostFormStep > item.step 
+                            ? 'bg-brand-500 text-white' 
+                            : 'bg-slate-100 text-slate-400'
+                      }`}>
+                        {item.step}
+                      </div>
+                      <span className={`text-[10px] font-bold mt-1 uppercase ${hostFormStep === item.step ? 'text-brand-500' : 'text-slate-400'}`}>
+                        {item.label}
+                      </span>
+                    </div>
+                  </React.Fragment>
+                ))}
+              </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Opportunity Type</label>
-                    <select
-                      value={hostForm.type}
-                      onChange={(e) => setHostForm({ ...hostForm, type: e.target.value })}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer"
-                      title="Recruiter opportunity type selection">
-                      <option value="JOB">Job</option>
-                      <option value="INTERNSHIP">Internship</option>
-                      <option value="COMPETITION">Competition</option>
-                      <option value="MENTORSHIP">Mentorship Session</option>
-                      <option value="WEBINAR">Webinar</option>
-                      <option value="WORKSHOP">Workshop</option>
-                      <option value="TRAINING">Training / Class</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Target Life Stage</label>
-                    <select
-                      value={hostForm.category}
-                      onChange={(e) => setHostForm({ ...hostForm, category: e.target.value })}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer"
-                      title="Recruiter opportunity category stage selection">
-                      <option value="fresh">After Studies (Freshers)</option>
-                      <option value="break">After Break (Returnships)</option>
-                      <option value="switch">Late 30s switch / Swinger</option>
-                    </select>
-                  </div>
-                </div>
+              <form onSubmit={submitNewOpportunity} className="space-y-6">
+                
+                {/* Step 1: Org Details */}
+                {hostFormStep === 1 && (
+                  <div className="space-y-4 animate-fade-in-up text-left">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase">Host Organization Name</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Salesforce"
+                          value={hostForm.company}
+                          onChange={(e) => setHostForm({ ...hostForm, company: e.target.value })}
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase">Your Relationship to Org</label>
+                        <select
+                          value={hostForm.posterRelationship}
+                          onChange={(e) => setHostForm({ ...hostForm, posterRelationship: e.target.value })}
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                          <option value="HR">HR Professional</option>
+                          <option value="Founder">Founder / CEO</option>
+                          <option value="Recruiter">Recruiter</option>
+                          <option value="Volunteer">Volunteer / Organizer</option>
+                        </select>
+                      </div>
+                    </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Delivery Mode</label>
-                    <select
-                      value={hostForm.mode}
-                      onChange={(e) => setHostForm({ ...hostForm, mode: e.target.value })}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer"
-                      title="Recruiter delivery mode selection">
-                      <option value="Online">Online / Remote</option>
-                      <option value="Hybrid">Hybrid</option>
-                      <option value="Offline">Offline / In-person</option>
-                    </select>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-500 uppercase">Host Verification Proof</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="LinkedIn company URL, corporate email domain, or doc link"
+                        value={hostForm.hostVerificationProof}
+                        onChange={(e) => setHostForm({ ...hostForm, hostVerificationProof: e.target.value })}
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                      />
+                      <p className="text-[10px] text-slate-400">Verifying authority ensures only safe, valid opportunities go live.</p>
+                    </div>
+
+                    <div className="border-t border-slate-100 my-4 pt-3">
+                      <h4 className="text-xs font-bold text-slate-700 uppercase mb-2">Primary Contact Person</h4>
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase">Full Name</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Anjali Nair"
+                            value={hostForm.contactPerson}
+                            onChange={(e) => setHostForm({ ...hostForm, contactPerson: e.target.value })}
+                            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Email Address</label>
+                            <input
+                              type="email"
+                              required
+                              placeholder="e.g. anjali@salesforce.com"
+                              value={hostForm.contactEmail}
+                              onChange={(e) => setHostForm({ ...hostForm, contactEmail: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Phone Number</label>
+                            <input
+                              type="tel"
+                              required
+                              placeholder="e.g. +91 98765 43210"
+                              value={hostForm.contactPhone}
+                              onChange={(e) => setHostForm({ ...hostForm, contactPhone: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Location</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Remote, or Bangalore"
-                      value={hostForm.location}
-                      onChange={(e) => setHostForm({ ...hostForm, location: e.target.value })}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
-                    />
-                  </div>
-                </div>
+                )}
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Compensation / Price</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. ₹60,000/mo, or Free"
-                      value={hostForm.price}
-                      onChange={(e) => setHostForm({ ...hostForm, price: e.target.value })}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Application Deadline</label>
-                    <input
-                      type="date"
-                      required
-                      value={hostForm.deadline}
-                      onChange={(e) => setHostForm({ ...hostForm, deadline: e.target.value })}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
-                    />
-                  </div>
-                </div>
+                {/* Step 2: General Details */}
+                {hostFormStep === 2 && (
+                  <div className="space-y-4 animate-fade-in-up text-left">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase">Opportunity Title</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Senior Java Developer"
+                          value={hostForm.title}
+                          onChange={(e) => setHostForm({ ...hostForm, title: e.target.value })}
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase">Opportunity Type</label>
+                        <select
+                          value={hostForm.type}
+                          onChange={(e) => setHostForm({ ...hostForm, type: e.target.value })}
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                          <option value="JOB">Job</option>
+                          <option value="INTERNSHIP">Internship</option>
+                          <option value="COMPETITION">Competition / Hackathon</option>
+                          <option value="MENTORSHIP">Mentorship Session</option>
+                          <option value="COURSES">Course / Workshop / Webinar</option>
+                          <option value="CLUB">Club & Community</option>
+                        </select>
+                      </div>
+                    </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">Eligibility Criteria</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Women returning to work after min 2 yrs break"
-                    value={hostForm.eligibility}
-                    onChange={(e) => setHostForm({ ...hostForm, eligibility: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
-                  />
-                </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase">Delivery Mode</label>
+                        <select
+                          value={hostForm.mode}
+                          onChange={(e) => setHostForm({ ...hostForm, mode: e.target.value })}
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                          <option value="Online">Online / Remote</option>
+                          <option value="Hybrid">Hybrid</option>
+                          <option value="Offline">Offline / In-person</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase">Location City/Info</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Remote, or Bangalore"
+                          value={hostForm.location}
+                          onChange={(e) => setHostForm({ ...hostForm, location: e.target.value })}
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+                        />
+                      </div>
+                    </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">Description</label>
-                  <textarea
-                    required
-                    placeholder="Provide details about the role, expectations, or training syllabus..."
-                    value={hostForm.description}
-                    onChange={(e) => setHostForm({ ...hostForm, description: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm h-28 focus:outline-none focus:ring-1 focus:ring-brand-500"
-                  />
-                </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase">Application Deadline</label>
+                        <input
+                          type="date"
+                          required
+                          value={hostForm.deadline}
+                          onChange={(e) => setHostForm({ ...hostForm, deadline: e.target.value })}
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase">Application Process</label>
+                        <select
+                          value={hostForm.applicationLink === "in-platform" ? "in-platform" : "external"}
+                          onChange={(e) => setHostForm({ ...hostForm, applicationLink: e.target.value === "in-platform" ? "in-platform" : "" })}
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                          <option value="in-platform">In-platform Apply (Default)</option>
+                          <option value="external">External Application URL</option>
+                        </select>
+                      </div>
+                    </div>
 
-                <div className="flex items-center gap-2 pt-2">
-                  <input
-                    type="checkbox"
-                    id="host-featured"
-                    checked={hostForm.featured}
-                    onChange={(e) => setHostForm({ ...hostForm, featured: e.target.checked })}
-                    className="h-4 w-4 rounded border-slate-300 text-brand-500 focus:ring-brand-500 cursor-pointer"
-                  />
-                  <label htmlFor="host-featured" className="text-xs font-bold text-slate-600 uppercase cursor-pointer select-none">
-                    Feature this listing (Show on Home & Featured section)
-                  </label>
-                </div>
+                    {hostForm.applicationLink !== "in-platform" && (
+                      <div className="space-y-1 animate-fade-in-up">
+                        <label className="text-xs font-bold text-slate-500 uppercase">External Application Link</label>
+                        <input
+                          type="url"
+                          required
+                          placeholder="e.g. https://careers.salesforce.com/job/123"
+                          value={hostForm.applicationLink}
+                          onChange={(e) => setHostForm({ ...hostForm, applicationLink: e.target.value })}
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                        />
+                      </div>
+                    )}
 
-                {hostForm.featured && (
-                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-4 animate-fade-in-up">
-                    <div className="space-y-2 text-left">
-                      <label className="text-xs font-bold text-slate-500 uppercase block">Select Poster Gradient Theme</label>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-500 uppercase block">Target Career / Life Stages (Curated Filter)</label>
+                      <div className="grid grid-cols-2 gap-2 p-3 bg-slate-50 rounded-2xl border border-slate-100">
                         {[
-                          { id: "tech-blue", label: "Modern Tech", class: "from-blue-600 via-blue-700 to-indigo-900" },
-                          { id: "sunset-rose", label: "Sunset Rose", class: "from-rose-500 via-pink-600 to-orange-500" },
-                          { id: "emerald-green", label: "Eco Emerald", class: "from-emerald-500 via-teal-600 to-teal-800" },
-                          { id: "luxury-purple", label: "Royal Purple", class: "from-purple-700 via-violet-800 to-indigo-950" }
-                        ].map(theme => (
-                          <button
-                            key={theme.id}
-                            type="button"
-                            onClick={() => setHostForm({ ...hostForm, posterTemplate: theme.id })}
-                            className={`p-3 rounded-xl border text-center relative overflow-hidden transition h-14 ${hostForm.posterTemplate === theme.id ? "border-[#2164c5] ring-2 ring-blue-500/20" : "border-slate-250 hover:border-slate-350"
-                              }`}
-                          >
-                            <div className={`absolute inset-0 bg-gradient-to-br ${theme.class} opacity-85`}></div>
-                            <span className="relative z-10 text-[10px] font-black text-white drop-shadow-sm">{theme.label}</span>
-                          </button>
+                          { id: "student", label: "Students (College girls)" },
+                          { id: "early-career", label: "Early-career (0-2 yrs exp)" },
+                          { id: "career-break", label: "Career-break returner" },
+                          { id: "senior", label: "Senior professional" }
+                        ].map(stage => (
+                          <div key={stage.id} className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id={`stage-${stage.id}`}
+                              checked={hostForm.lifeStageTags.includes(stage.id)}
+                              onChange={() => toggleLifeStageTag(stage.id)}
+                              className="h-4 w-4 rounded text-brand-500 border-slate-300 focus:ring-brand-500 cursor-pointer"
+                            />
+                            <label htmlFor={`stage-${stage.id}`} className="text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                              {stage.label}
+                            </label>
+                          </div>
                         ))}
                       </div>
                     </div>
 
-                    <div className="space-y-1 text-left">
-                      <label className="text-xs font-bold text-slate-500 uppercase block">Or Custom Poster Image URL</label>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-500 uppercase">Short Description (1-2 lines)</label>
                       <input
-                        type="url"
-                        placeholder="e.g. https://images.unsplash.com/... (optional)"
-                        value={hostForm.posterUrl || ""}
-                        onChange={(e) => setHostForm({ ...hostForm, posterUrl: e.target.value })}
-                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
+                        type="text"
+                        required
+                        placeholder="e.g. Hiring female developers returning to tech after maternity leave."
+                        value={hostForm.shortDescription}
+                        onChange={(e) => setHostForm({ ...hostForm, shortDescription: e.target.value })}
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-500 uppercase">Full Description / Details</label>
+                      <textarea
+                        required
+                        placeholder="Provide deep details about expectations, role responsibilities, training curriculum..."
+                        value={hostForm.description}
+                        onChange={(e) => setHostForm({ ...hostForm, description: e.target.value })}
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm h-24 focus:outline-none"
                       />
                     </div>
                   </div>
                 )}
 
-                <button type="submit" className="w-full bg-brand-500 hover:bg-brand-700 text-white rounded-xl py-3 text-xs font-black shadow-sm transition mt-6">
-                  Submit Listing for Verification
-                </button>
+                {/* Step 3: Dynamic Category Fields */}
+                {hostFormStep === 3 && (
+                  <div className="space-y-4 animate-fade-in-up text-left max-h-[350px] overflow-y-auto pr-2">
+                    <h4 className="text-xs font-black text-slate-700 border-b border-slate-100 pb-2 mb-2 uppercase tracking-wide">
+                      {hostForm.type} Custom Attributes
+                    </h4>
+
+                    {/* JOB TYPE FIELDS */}
+                    {hostForm.type === "JOB" && (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Employment Type</label>
+                            <select
+                              value={hostForm.jobEmploymentType}
+                              onChange={(e) => setHostForm({ ...hostForm, jobEmploymentType: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                              <option value="full-time">Full-time</option>
+                              <option value="part-time">Part-time</option>
+                              <option value="contract">Contract</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Experience Level Required</label>
+                            <select
+                              value={hostForm.jobExperienceLevel}
+                              onChange={(e) => setHostForm({ ...hostForm, jobExperienceLevel: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                              <option value="fresher">Fresher (0-1 yr)</option>
+                              <option value="1-3 yrs">Junior (1-3 yrs)</option>
+                              <option value="3-5 yrs">Mid-level (3-5 yrs)</option>
+                              <option value="senior">Senior (5+ yrs)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Salary Range</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. ₹8-12 LPA, or Not Disclosed"
+                              value={hostForm.jobSalaryRange}
+                              onChange={(e) => setHostForm({ ...hostForm, jobSalaryRange: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Career-Break Friendly?</label>
+                            <select
+                              value={hostForm.jobCareerBreakFriendly}
+                              onChange={(e) => setHostForm({ ...hostForm, jobCareerBreakFriendly: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                              <option value="yes">Yes (Returners highly welcome)</option>
+                              <option value="no">No</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Number of Openings</label>
+                            <input
+                              type="number"
+                              required
+                              value={hostForm.seats}
+                              onChange={(e) => setHostForm({ ...hostForm, seats: Number(e.target.value) })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Eligibility Criteria</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. B.E / B.Tech or equivalent"
+                              value={hostForm.eligibility}
+                              onChange={(e) => setHostForm({ ...hostForm, eligibility: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-slate-500 uppercase">Required Skills (Comma separated tags)</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. React, JavaScript, REST APIs"
+                            value={hostForm.jobRequiredSkills}
+                            onChange={(e) => setHostForm({ ...hostForm, jobRequiredSkills: e.target.value })}
+                            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* INTERNSHIP TYPE FIELDS */}
+                    {hostForm.type === "INTERNSHIP" && (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Duration (weeks/months)</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. 6 Months"
+                              value={hostForm.internshipDuration}
+                              onChange={(e) => setHostForm({ ...hostForm, internshipDuration: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Monthly Stipend</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. ₹25,000/mo, or Unpaid"
+                              value={hostForm.internshipStipend}
+                              onChange={(e) => setHostForm({ ...hostForm, internshipStipend: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Hours per Week</label>
+                            <select
+                              value={hostForm.internshipHoursPerWeek}
+                              onChange={(e) => setHostForm({ ...hostForm, internshipHoursPerWeek: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                              <option value="full-time">Full-time (40 hrs/wk)</option>
+                              <option value="part-time">Part-time (20 hrs/wk)</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Certificate Provided?</label>
+                            <select
+                              value={hostForm.internshipCertificate}
+                              onChange={(e) => setHostForm({ ...hostForm, internshipCertificate: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                              <option value="yes">Yes</option>
+                              <option value="no">No</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Conversion to Full-time offer?</label>
+                            <select
+                              value={hostForm.internshipConversionOffer}
+                              onChange={(e) => setHostForm({ ...hostForm, internshipConversionOffer: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                              <option value="yes">Yes (PPO likely)</option>
+                              <option value="no">No</option>
+                              <option value="maybe">Maybe / Performance-based</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Openings Count</label>
+                            <input
+                              type="number"
+                              required
+                              value={hostForm.seats}
+                              onChange={(e) => setHostForm({ ...hostForm, seats: Number(e.target.value) })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-slate-500 uppercase">Eligibility Details</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. 3rd year female B.Tech/BCA students, basics of Java"
+                            value={hostForm.internshipEligibility}
+                            onChange={(e) => setHostForm({ ...hostForm, internshipEligibility: e.target.value })}
+                            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* COMPETITION TYPE FIELDS */}
+                    {hostForm.type === "COMPETITION" && (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Participation Format</label>
+                            <select
+                              value={hostForm.competitionFormat}
+                              onChange={(e) => setHostForm({ ...hostForm, competitionFormat: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                              <option value="solo">Solo Participation</option>
+                              <option value="team">Team Participation</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Max Team Size</label>
+                            <input
+                              type="number"
+                              required
+                              disabled={hostForm.competitionFormat === "solo"}
+                              value={hostForm.competitionFormat === "solo" ? 1 : hostForm.competitionMaxTeamSize}
+                              onChange={(e) => setHostForm({ ...hostForm, competitionMaxTeamSize: Number(e.target.value) })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white disabled:bg-slate-50 disabled:text-slate-400"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Theme / Domain</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. AI for Health, FinTech"
+                              value={hostForm.competitionTheme}
+                              onChange={(e) => setHostForm({ ...hostForm, competitionTheme: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Registration Fee</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Free, or ₹200"
+                              value={hostForm.competitionRegistrationFee}
+                              onChange={(e) => setHostForm({ ...hostForm, competitionRegistrationFee: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Prize Details</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Cash prize of ₹2 Lakhs + Mentorship"
+                              value={hostForm.competitionPrizeDetails}
+                              onChange={(e) => setHostForm({ ...hostForm, competitionPrizeDetails: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Competition Timeline</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Coding: Oct 1-3, Finals: Oct 10"
+                              value={hostForm.competitionTimeline}
+                              onChange={(e) => setHostForm({ ...hostForm, competitionTimeline: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Eligibility Profile</label>
+                            <select
+                              value={hostForm.competitionEligibility}
+                              onChange={(e) => setHostForm({ ...hostForm, competitionEligibility: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                              <option value="student">Student only</option>
+                              <option value="professional">Professional only</option>
+                              <option value="open to all">Open to all genders/profiles</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Judging Rubric URL (Optional)</label>
+                            <input
+                              type="url"
+                              placeholder="e.g. https://domain.com/rubric.pdf"
+                              value={hostForm.competitionRubricLink}
+                              onChange={(e) => setHostForm({ ...hostForm, competitionRubricLink: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* MENTORSHIP TYPE FIELDS */}
+                    {hostForm.type === "MENTORSHIP" && (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Mentor Expertise Domain</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Career Transition, System Design"
+                              value={hostForm.mentorshipExpertise}
+                              onChange={(e) => setHostForm({ ...hostForm, mentorshipExpertise: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Mentor's LinkedIn Profile</label>
+                            <input
+                              type="url"
+                              required
+                              placeholder="https://linkedin.com/in/username"
+                              value={hostForm.mentorshipLinkedIn}
+                              onChange={(e) => setHostForm({ ...hostForm, mentorshipLinkedIn: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Session Format</label>
+                            <select
+                              value={hostForm.mentorshipFormat}
+                              onChange={(e) => setHostForm({ ...hostForm, mentorshipFormat: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                              <option value="1:1">1:Private Mentoring</option>
+                              <option value="group">Group Coaching / Cohort</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Duration & Frequency</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. 4 sessions over 2 months"
+                              value={hostForm.mentorshipDuration}
+                              onChange={(e) => setHostForm({ ...hostForm, mentorshipDuration: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Pricing / Fee</label>
+                            <select
+                              value={hostForm.mentorshipPaidOrFree}
+                              onChange={(e) => setHostForm({ ...hostForm, mentorshipPaidOrFree: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                              <option value="Free">Free</option>
+                              <option value="Paid">Paid / Charged</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Selection Process</label>
+                            <select
+                              value={hostForm.mentorshipSelectionProcess}
+                              onChange={(e) => setHostForm({ ...hostForm, mentorshipSelectionProcess: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                              <option value="open">Open (First come basis)</option>
+                              <option value="mentor-select">Application Review (Mentor selects)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-slate-500 uppercase">Who is this mentorship session for?</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Women in early QA roles looking to switch to Dev"
+                            value={hostForm.mentorshipWhoFor}
+                            onChange={(e) => setHostForm({ ...hostForm, mentorshipWhoFor: e.target.value })}
+                            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-slate-500 uppercase">Mentor's Brief Bio / Credentials</label>
+                          <textarea
+                            required
+                            placeholder="Briefly state your current role, accomplishments, or teaching background..."
+                            value={hostForm.mentorshipBio}
+                            onChange={(e) => setHostForm({ ...hostForm, mentorshipBio: e.target.value })}
+                            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm h-20 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* COURSES / WORKSHOPS / WEBINARS TYPE FIELDS */}
+                    {(hostForm.type === "COURSES" || hostForm.type === "WEBINAR" || hostForm.type === "WORKSHOP" || hostForm.type === "TRAINING") && (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Instructor Credentials</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Google Lead Engineer, 12 yrs exp"
+                              value={hostForm.courseInstructorCredentials}
+                              onChange={(e) => setHostForm({ ...hostForm, courseInstructorCredentials: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Delivery Mode</label>
+                            <select
+                              value={hostForm.courseMode}
+                              onChange={(e) => setHostForm({ ...hostForm, courseMode: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                              <option value="live">Live Interactive Sessions</option>
+                              <option value="recorded">Pre-recorded Cohort</option>
+                              <option value="self-paced">Self-paced course</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Duration (total hours/weeks)</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. 15 hours total"
+                              value={hostForm.courseDuration}
+                              onChange={(e) => setHostForm({ ...hostForm, courseDuration: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Price</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Free, or ₹1,499"
+                              value={hostForm.coursePrice}
+                              onChange={(e) => setHostForm({ ...hostForm, coursePrice: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Certificate on Completion?</label>
+                            <select
+                              value={hostForm.courseCertificate}
+                              onChange={(e) => setHostForm({ ...hostForm, courseCertificate: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                              <option value="yes">Yes (Accredited)</option>
+                              <option value="no">No</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Schedule Dates/Times</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Every Saturday 10:00 AM IST"
+                              value={hostForm.courseSchedule}
+                              onChange={(e) => setHostForm({ ...hostForm, courseSchedule: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Platform Link (Zoom, LMS, etc)</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Zoom Meet Link, or Teachable URL"
+                              value={hostForm.coursePlatform}
+                              onChange={(e) => setHostForm({ ...hostForm, coursePlatform: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Prerequisites</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Basics of Programming or None"
+                              value={hostForm.coursePrerequisites}
+                              onChange={(e) => setHostForm({ ...hostForm, coursePrerequisites: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* CLUB & COMMUNITY TYPE FIELDS */}
+                    {hostForm.type === "CLUB" && (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Community Focus / Theme</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Women Entrepreneurs Support"
+                              value={hostForm.clubFocus}
+                              onChange={(e) => setHostForm({ ...hostForm, clubFocus: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Membership Type</label>
+                            <select
+                              value={hostForm.clubMembershipType}
+                              onChange={(e) => setHostForm({ ...hostForm, clubMembershipType: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                              <option value="open">Open Community</option>
+                              <option value="invite-only">Invite-Only Access</option>
+                              <option value="application-based">Application / Approval Based</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Membership Fee</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Free, or ₹100/mo"
+                              value={hostForm.clubFee}
+                              onChange={(e) => setHostForm({ ...hostForm, clubFee: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Platform Platform Link</label>
+                            <select
+                              value={hostForm.clubPlatform}
+                              onChange={(e) => setHostForm({ ...hostForm, clubPlatform: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white cursor-pointer">
+                              <option value="Discord">Discord Server</option>
+                              <option value="Slack">Slack Workspace</option>
+                              <option value="WhatsApp">WhatsApp Community</option>
+                              <option value="in-app forum">In-app SheReDefine Group</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Activity Cadence</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Weekly meetups, monthly events"
+                              value={hostForm.clubActivityCadence}
+                              onChange={(e) => setHostForm({ ...hostForm, clubActivityCadence: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Max Member Cap</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. 500 members, or No Limit"
+                              value={hostForm.clubSizeCap}
+                              onChange={(e) => setHostForm({ ...hostForm, clubSizeCap: e.target.value })}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-slate-500 uppercase">Guidelines / Code of Conduct Link</label>
+                          <input
+                            type="url"
+                            placeholder="e.g. https://domain.com/guidelines (optional)"
+                            value={hostForm.clubGuidelinesLink}
+                            onChange={(e) => setHostForm({ ...hostForm, clubGuidelinesLink: e.target.value })}
+                            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* FEATURE GRADIENT SECTION */}
+                    <div className="border-t border-slate-100 my-4 pt-3 flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="host-featured"
+                        checked={hostForm.featured}
+                        onChange={(e) => setHostForm({ ...hostForm, featured: e.target.checked })}
+                        className="h-4 w-4 rounded border-slate-300 text-brand-500 focus:ring-brand-500 cursor-pointer"
+                      />
+                      <label htmlFor="host-featured" className="text-xs font-bold text-slate-600 uppercase cursor-pointer select-none">
+                        Feature this listing (Show on Home & Featured section)
+                      </label>
+                    </div>
+
+                    {hostForm.featured && (
+                      <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-4 animate-fade-in-up">
+                        <div className="space-y-2 text-left">
+                          <label className="text-xs font-bold text-slate-500 uppercase block">Select Poster Gradient Theme</label>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            {[
+                              { id: "tech-blue", label: "Modern Tech", class: "from-blue-600 via-blue-700 to-indigo-900" },
+                              { id: "sunset-rose", label: "Sunset Rose", class: "from-rose-500 via-pink-600 to-orange-500" },
+                              { id: "emerald-green", label: "Eco Emerald", class: "from-emerald-500 via-teal-600 to-teal-800" },
+                              { id: "luxury-purple", label: "Royal Purple", class: "from-purple-700 via-violet-800 to-indigo-950" }
+                            ].map(theme => (
+                              <button
+                                key={theme.id}
+                                type="button"
+                                onClick={() => setHostForm({ ...hostForm, posterTemplate: theme.id })}
+                                className={`p-3 rounded-xl border text-center relative overflow-hidden transition h-14 ${hostForm.posterTemplate === theme.id ? "border-[#2164c5] ring-2 ring-blue-500/20" : "border-slate-250 hover:border-slate-350"
+                                  }`}
+                              >
+                                <div className={`absolute inset-0 bg-gradient-to-br ${theme.class} opacity-85`}></div>
+                                <span className="relative z-10 text-[10px] font-black text-white drop-shadow-sm">{theme.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1 text-left">
+                          <label className="text-xs font-bold text-slate-500 uppercase block">Or Custom Poster Image URL</label>
+                          <input
+                            type="url"
+                            placeholder="e.g. https://images.unsplash.com/... (optional)"
+                            value={hostForm.posterUrl || ""}
+                            onChange={(e) => setHostForm({ ...hostForm, posterUrl: e.target.value })}
+                            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Step Navigation controls */}
+                <div className="flex justify-between items-center pt-4 border-t border-slate-100">
+                  {hostFormStep > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => setHostFormStep(prev => prev - 1)}
+                      className="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 font-bold transition text-sm">
+                      Back
+                    </button>
+                  ) : (
+                    <div />
+                  )}
+                  
+                  {hostFormStep < 3 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (hostFormStep === 1) {
+                          if (!hostForm.company || !hostForm.contactPerson || !hostForm.contactEmail || !hostForm.hostVerificationProof) {
+                            alert("Please fill in Company Name, Relationship, Verification Proof, Contact Name, and Contact Email.");
+                            return;
+                          }
+                        } else if (hostFormStep === 2) {
+                          if (!hostForm.title || !hostForm.location || !hostForm.deadline || !hostForm.description || !hostForm.shortDescription) {
+                            alert("Please fill in Title, Location, Deadline, Short Description, and Full Description.");
+                            return;
+                          }
+                          if (hostForm.lifeStageTags.length === 0) {
+                            alert("Please select at least one Target Career / Life Stage tag.");
+                            return;
+                          }
+                        }
+                        setHostFormStep(prev => prev + 1);
+                      }}
+                      className="px-5 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl font-bold transition text-sm shadow-sm">
+                      Next
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      className="px-5 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl font-bold transition text-sm shadow-sm">
+                      Submit Opportunity
+                    </button>
+                  )}
+                </div>
               </form>
             </div>
           </div>
@@ -9767,48 +11975,87 @@ export default function App() {
               </div>
 
               <div className="space-y-6">
-                {/* About Me */}
-                {candidateProfileToView.profileDetails?.aboutMe && (
-                  <div className="space-y-1.5">
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Candidate Bio / Summary</h4>
-                    <p className="text-sm text-slate-600 bg-slate-50 p-4 rounded-2xl border border-slate-150/50 leading-relaxed font-semibold">
-                      {candidateProfileToView.profileDetails.aboutMe}
-                    </p>
+                {/* 1. Basic Information */}
+                <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-150 space-y-3">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider border-b border-slate-200 pb-2 flex items-center gap-1.5">
+                    👤 Basic Information
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <span className="font-bold text-slate-400 uppercase text-[9px] block">Full Name</span>
+                      <span className="text-slate-800 font-black text-sm">{candidateProfileToView.firstName} {candidateProfileToView.lastName}</span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-400 uppercase text-[9px] block">Email Address</span>
+                      <span className="text-slate-800 font-bold">{candidateProfileToView.email}</span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-400 uppercase text-[9px] block">Username</span>
+                      <span className="text-slate-600 font-semibold">@{candidateProfileToView.username}</span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-400 uppercase text-[9px] block">Phone Number</span>
+                      <span className="text-slate-800 font-bold">{candidateProfileToView.phone || "Not provided"}</span>
+                    </div>
                   </div>
-                )}
+                  {candidateProfileToView.profileDetails?.aboutMe && (
+                    <div className="pt-2 border-t border-slate-100 mt-2">
+                      <span className="font-bold text-slate-400 uppercase text-[9px] block mb-1">Candidate Bio / Summary</span>
+                      <p className="text-xs text-slate-600 leading-relaxed font-semibold bg-white p-3 rounded-xl border border-slate-150/40">
+                        {candidateProfileToView.profileDetails.aboutMe}
+                      </p>
+                    </div>
+                  )}
+                </div>
 
-                {/* Education */}
-                {candidateProfileToView.profileDetails?.education?.college && (
-                  <div className="space-y-3">
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Education History</h4>
-                    <div className="p-4 border border-slate-150 rounded-2xl space-y-1 text-sm bg-white">
-                      <div className="font-bold text-slate-800">
+                {/* 2. Education Details */}
+                <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-150 space-y-3">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider border-b border-slate-200 pb-2 flex items-center gap-1.5">
+                    🎓 Education Details
+                  </h4>
+                  {candidateProfileToView.profileDetails?.education?.college ? (
+                    <div className="bg-white p-4 rounded-xl border border-slate-150/50 space-y-2 text-xs">
+                      <div className="font-black text-slate-800 text-sm">
                         {candidateProfileToView.profileDetails.education.qualification} in {candidateProfileToView.profileDetails.education.course}
+                        {candidateProfileToView.profileDetails.education.specialization && ` (${candidateProfileToView.profileDetails.education.specialization})`}
                       </div>
-                      <div className="text-xs text-slate-500 font-semibold">
+                      <div className="text-slate-500 font-semibold">
                         {candidateProfileToView.profileDetails.education.college}
                       </div>
-                      <div className="flex justify-between text-xs text-slate-400 font-semibold pt-1">
-                        <span>Class of {candidateProfileToView.profileDetails.education.endYear || "N/A"}</span>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-slate-400 font-bold pt-1">
+                        <span>Class: {candidateProfileToView.profileDetails.education.startYear || "N/A"} - {candidateProfileToView.profileDetails.education.endYear || "N/A"}</span>
+                        <span>Type: {candidateProfileToView.profileDetails.education.courseType || "Full-time"}</span>
                         {candidateProfileToView.profileDetails.education.cgpa && (
                           <span>CGPA: {candidateProfileToView.profileDetails.education.cgpa}</span>
                         )}
+                        {candidateProfileToView.profileDetails.education.rollNumber && (
+                          <span>Roll No: {candidateProfileToView.profileDetails.education.rollNumber}</span>
+                        )}
                       </div>
+                      {candidateProfileToView.profileDetails.education.description && (
+                        <p className="text-slate-500 italic mt-1.5 pt-1.5 border-t border-slate-50 leading-relaxed font-semibold">
+                          {candidateProfileToView.profileDetails.education.description}
+                        </p>
+                      )}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div className="text-xs text-slate-400 italic font-semibold">No education details provided.</div>
+                  )}
+                </div>
 
-                {/* Skills */}
-                {candidateProfileToView.profileDetails?.skills && (
-                  <div className="space-y-3">
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Key Skills & Proficiencies</h4>
-                    <div className="p-4 border border-slate-150 rounded-2xl space-y-3 bg-white text-xs font-semibold">
+                {/* 3. Skills & Languages */}
+                <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-150 space-y-3">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider border-b border-slate-200 pb-2 flex items-center gap-1.5">
+                    🛠️ Skills & Languages
+                  </h4>
+                  {candidateProfileToView.profileDetails?.skills ? (
+                    <div className="bg-white p-4 rounded-xl border border-slate-150/50 space-y-3.5 text-xs">
                       {candidateProfileToView.profileDetails.skills.technicalSkills && (
                         <div>
-                          <span className="font-bold text-slate-400 uppercase block text-[9px] mb-1">Technical Skills</span>
-                          <div className="flex flex-wrap gap-1.5 mt-1">
+                          <span className="font-bold text-slate-400 uppercase text-[9px] block mb-1.5">Technical Skills</span>
+                          <div className="flex flex-wrap gap-1.5">
                             {candidateProfileToView.profileDetails.skills.technicalSkills.split(',').map(s => (
-                              <span key={s} className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg">{s.trim()}</span>
+                              <span key={s} className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg font-bold">{s.trim()}</span>
                             ))}
                           </div>
                         </div>
@@ -9816,66 +12063,270 @@ export default function App() {
 
                       {candidateProfileToView.profileDetails.skills.softSkills && (
                         <div>
-                          <span className="font-bold text-slate-400 uppercase block text-[9px] mb-1">Soft Skills / Core Strengths</span>
-                          <div className="flex flex-wrap gap-1.5 mt-1">
+                          <span className="font-bold text-slate-400 uppercase text-[9px] block mb-1.5">Soft Skills & Core Strengths</span>
+                          <div className="flex flex-wrap gap-1.5">
                             {candidateProfileToView.profileDetails.skills.softSkills.split(',').map(s => (
-                              <span key={s} className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg">{s.trim()}</span>
+                              <span key={s} className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg font-bold">{s.trim()}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-3 pt-2.5 border-t border-slate-100">
+                        <div>
+                          <span className="font-bold text-slate-400 uppercase text-[9px] block">Languages</span>
+                          <span className="text-slate-800 font-bold mt-0.5 block">{candidateProfileToView.profileDetails.skills.languages || "None listed"}</span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-slate-400 uppercase text-[9px] block">Overall Tech Proficiency</span>
+                          <span className="text-slate-800 font-bold mt-0.5 block">{candidateProfileToView.profileDetails.skills.proficiency || "None listed"}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-400 italic font-semibold">No skills or language details provided.</div>
+                  )}
+                </div>
+
+                {/* 4. Projects */}
+                <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-150 space-y-3">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider border-b border-slate-200 pb-2 flex items-center gap-1.5">
+                    📂 Projects
+                  </h4>
+                  {candidateProfileToView.profileDetails?.projects?.length > 0 ? (
+                    <div className="space-y-3">
+                      {candidateProfileToView.profileDetails.projects.map((proj, idx) => (
+                        <div key={idx} className="bg-white p-4 rounded-xl border border-slate-150/50 space-y-2 text-xs">
+                          <h5 className="font-black text-slate-800 text-sm">{proj.title}</h5>
+                          <p className="text-slate-500 leading-normal font-semibold">{proj.description}</p>
+                          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-50 text-[10px] text-slate-400 font-bold">
+                            {proj.technologies && <div>Technologies: <span className="text-brand-600">{proj.technologies}</span></div>}
+                            {proj.duration && <div>Duration: <span className="text-slate-700">{proj.duration}</span></div>}
+                            {proj.teamSize && <div>Team Size: <span className="text-slate-700">{proj.teamSize}</span></div>}
+                          </div>
+                          {(proj.projectLink || proj.githubLink) && (
+                            <div className="flex gap-3 pt-1.5">
+                              {proj.projectLink && <a href={proj.projectLink} target="_blank" rel="noopener noreferrer" className="text-[10px] text-brand-500 font-bold hover:underline">Live Link ↗</a>}
+                              {proj.githubLink && <a href={proj.githubLink} target="_blank" rel="noopener noreferrer" className="text-[10px] text-slate-700 font-bold hover:underline">GitHub Code ↗</a>}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-400 italic font-semibold">No academic or personal projects added yet.</div>
+                  )}
+                </div>
+
+                {/* 5. Certificates */}
+                <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-150 space-y-3">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider border-b border-slate-200 pb-2 flex items-center gap-1.5">
+                    📜 Certificates
+                  </h4>
+                  {candidateProfileToView.profileDetails?.certificates?.length > 0 ? (
+                    <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
+                      {candidateProfileToView.profileDetails.certificates.map((cert, idx) => (
+                        <div key={idx} className="bg-white p-4 rounded-xl border border-slate-150/50 space-y-1 text-xs">
+                          <div className="font-black text-slate-800">{cert.name}</div>
+                          <div className="text-[10px] text-slate-500 font-bold">{cert.org}</div>
+                          <div className="text-[9px] text-slate-400 mt-0.5">Issued: {cert.issueDate || "N/A"}</div>
+                          {cert.url && (
+                            <a href={cert.url} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand-500 hover:underline font-bold block mt-1">Verify Certificate ↗</a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-400 italic font-semibold">No professional certificates added yet.</div>
+                  )}
+                </div>
+
+                {/* 6. Positions & Responsibilities */}
+                <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-150 space-y-3">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider border-b border-slate-200 pb-2 flex items-center gap-1.5">
+                    🏆 Positions & Responsibilities
+                  </h4>
+                  {candidateProfileToView.profileDetails?.positions?.length > 0 ? (
+                    <div className="space-y-2">
+                      {candidateProfileToView.profileDetails.positions.map((pos, idx) => (
+                        <div key={idx} className="bg-white p-4 rounded-xl border border-slate-150/50 text-xs space-y-0.5">
+                          <div className="font-black text-slate-800">{pos.title}</div>
+                          <div className="text-[10px] text-[#2164c5] font-bold">{pos.organization} • {pos.roleType || "Position"}</div>
+                          <div className="text-[9px] text-slate-400">Duration: {pos.duration}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-400 italic font-semibold">No leadership positions or extra-curricular roles listed.</div>
+                  )}
+                </div>
+
+                {/* 7. Prior Work Experience / Internships */}
+                <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-150 space-y-3">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider border-b border-slate-200 pb-2 flex items-center gap-1.5">
+                    💼 Prior Work Experience / Internships
+                  </h4>
+                  {((candidateProfileToView.profileDetails?.workExperience) || 
+                    (candidateProfileToView.profileDetails?.previousExperience?.length > 0) || 
+                    (candidateProfileToView.profileDetails?.careerBreak?.startDate)) ? (
+                    <div className="bg-white p-4 rounded-xl border border-slate-150/50 space-y-3.5 text-xs">
+                      {/* Career Break details */}
+                      {candidateProfileToView.profileDetails.careerBreak?.startDate && (
+                        <div className="pb-3 border-b border-slate-100 space-y-1.5">
+                          <span className="font-bold text-slate-400 uppercase text-[9px] block">Career Break Information</span>
+                          <div className="text-slate-800 font-bold">
+                            Timeline: {candidateProfileToView.profileDetails.careerBreak.startDate} to {candidateProfileToView.profileDetails.careerBreak.currentlyActive === "Yes" ? "Present" : candidateProfileToView.profileDetails.careerBreak.endDate || "N/A"}
+                          </div>
+                          {candidateProfileToView.profileDetails.careerBreak.reasonForBreak?.length > 0 && (
+                            <div>
+                              <span className="text-[9px] text-slate-400 uppercase block font-bold mb-1">Reason for Break</span>
+                              <div className="flex flex-wrap gap-1">
+                                {candidateProfileToView.profileDetails.careerBreak.reasonForBreak.map(r => (
+                                  <span key={r} className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-100 rounded-md text-[10px] font-bold">{r}</span>
+                                ))}
+                                {candidateProfileToView.profileDetails.careerBreak.otherReason && (
+                                  <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-100 rounded-md text-[10px] font-bold">{candidateProfileToView.profileDetails.careerBreak.otherReason}</span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Previous Experience */}
+                      {candidateProfileToView.profileDetails.previousExperience?.length > 0 && (
+                        <div className="space-y-3 pb-3 border-b border-slate-100">
+                          <span className="font-bold text-slate-400 uppercase text-[9px] block">Full-time Positions</span>
+                          {candidateProfileToView.profileDetails.previousExperience.map((exp, idx) => (
+                            <div key={idx} className="bg-slate-50 border border-slate-100 rounded-lg p-3 space-y-1">
+                              <div className="font-black text-slate-800 text-xs">{exp.designation}</div>
+                              <div className="text-[10px] text-brand-600 font-bold">{exp.companyName} • {exp.employmentType || "Full-time"}</div>
+                              <div className="text-[10px] text-slate-400">Duration: {exp.startDate} - {exp.endDate || "Present"}</div>
+                              {exp.responsibilities && <p className="text-[11px] text-slate-600 font-medium mt-1">{exp.responsibilities}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Informal Roles / Internships Summary */}
+                      {(candidateProfileToView.profileDetails.workExperience?.internship || 
+                        candidateProfileToView.profileDetails.workExperience?.freelance || 
+                        candidateProfileToView.profileDetails.workExperience?.partTime) && (
+                        <div className="space-y-2">
+                          {candidateProfileToView.profileDetails.workExperience.internship && (
+                            <div>
+                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Internships</span>
+                              <span className="text-slate-700 font-semibold">{candidateProfileToView.profileDetails.workExperience.internship}</span>
+                            </div>
+                          )}
+                          {candidateProfileToView.profileDetails.workExperience.freelance && (
+                            <div>
+                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Freelance Projects</span>
+                              <span className="text-slate-700 font-semibold">{candidateProfileToView.profileDetails.workExperience.freelance}</span>
+                            </div>
+                          )}
+                          {candidateProfileToView.profileDetails.workExperience.partTime && (
+                            <div>
+                              <span className="font-bold text-slate-400 uppercase text-[9px] block">Part-time Roles</span>
+                              <span className="text-slate-700 font-semibold">{candidateProfileToView.profileDetails.workExperience.partTime}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-400 italic font-semibold">No work experience or internship details provided.</div>
+                  )}
+                </div>
+
+                {/* 8. Personal & Address Details */}
+                <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-150 space-y-3">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider border-b border-slate-200 pb-2 flex items-center gap-1.5">
+                    🏠 Personal & Address Details
+                  </h4>
+                  <div className="bg-white p-4 rounded-xl border border-slate-150/50 space-y-2.5 text-xs">
+                    <div className="grid grid-cols-2 gap-3 pb-2 border-b border-slate-100">
+                      <div>
+                        <span className="font-bold text-slate-400 uppercase text-[9px] block">Gender</span>
+                        <span className="text-slate-800 font-semibold">{candidateProfileToView.gender || candidateProfileToView.profileDetails?.personalDetails?.gender || "Not specified"}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-400 uppercase text-[9px] block">Date of Birth</span>
+                        <span className="text-slate-800 font-semibold">{candidateProfileToView.dob || candidateProfileToView.profileDetails?.personalDetails?.dob || "Not specified"}</span>
+                      </div>
+                    </div>
+                    {candidateProfileToView.profileDetails?.personalDetails?.hobbies && (
+                      <div className="pb-2 border-b border-slate-100">
+                        <span className="font-bold text-slate-400 uppercase text-[9px] block">Hobbies & Interests</span>
+                        <span className="text-slate-800 font-semibold">{candidateProfileToView.profileDetails.personalDetails.hobbies}</span>
+                      </div>
+                    )}
+                    <div>
+                      <span className="font-bold text-slate-400 uppercase text-[9px] block">Current Address</span>
+                      <span className="text-slate-800 font-medium block leading-relaxed">{candidateProfileToView.profileDetails?.personalDetails?.currentAddress || "Not provided"}</span>
+                    </div>
+                    <div className="pt-2 border-t border-slate-50">
+                      <span className="font-bold text-slate-400 uppercase text-[9px] block">Permanent Address</span>
+                      <span className="text-slate-800 font-medium block leading-relaxed">{candidateProfileToView.profileDetails?.personalDetails?.permanentAddress || "Not provided"}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 9. Professional Links & Socials */}
+                <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-150 space-y-3">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider border-b border-slate-200 pb-2 flex items-center gap-1.5">
+                    🔗 Professional Links & Socials
+                  </h4>
+                  {candidateProfileToView.profileDetails?.socialLinks ? (
+                    <div className="bg-white p-4 rounded-xl border border-slate-150/50 space-y-2.5 text-xs font-bold">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {candidateProfileToView.profileDetails.socialLinks.linkedin ? (
+                          <a href={candidateProfileToView.profileDetails.socialLinks.linkedin} target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline flex items-center gap-1">
+                            🔗 LinkedIn Profile ↗
+                          </a>
+                        ) : (
+                          <span className="text-slate-400 font-semibold">LinkedIn: Not provided</span>
+                        )}
+                        {candidateProfileToView.profileDetails.socialLinks.github ? (
+                          <a href={candidateProfileToView.profileDetails.socialLinks.github} target="_blank" rel="noopener noreferrer" className="text-slate-700 hover:underline flex items-center gap-1">
+                            💻 GitHub Profile ↗
+                          </a>
+                        ) : (
+                          <span className="text-slate-400 font-semibold">GitHub: Not provided</span>
+                        )}
+                        {candidateProfileToView.profileDetails.socialLinks.portfolio ? (
+                          <a href={candidateProfileToView.profileDetails.socialLinks.portfolio} target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline flex items-center gap-1">
+                            🌐 Personal Portfolio ↗
+                          </a>
+                        ) : (
+                          <span className="text-slate-400 font-semibold">Portfolio: Not provided</span>
+                        )}
+                        {candidateProfileToView.profileDetails.socialLinks.instagram && (
+                          <a href={candidateProfileToView.profileDetails.socialLinks.instagram} target="_blank" rel="noopener noreferrer" className="text-pink-650 hover:underline flex items-center gap-1">
+                            📸 Instagram Profile ↗
+                          </a>
+                        )}
+                        {candidateProfileToView.profileDetails.socialLinks.facebook && (
+                          <a href={candidateProfileToView.profileDetails.socialLinks.facebook} target="_blank" rel="noopener noreferrer" className="text-blue-700 hover:underline flex items-center gap-1">
+                            👥 Facebook Profile ↗
+                          </a>
+                        )}
+                      </div>
+                      {candidateProfileToView.profileDetails.socialLinks.customLinks?.length > 0 && (
+                        <div className="border-t border-slate-100 pt-2.5 mt-2 space-y-1.5">
+                          <span className="font-bold text-slate-400 uppercase text-[9px] block">Other Portfolios / Work Links</span>
+                          <div className="flex flex-wrap gap-3">
+                            {candidateProfileToView.profileDetails.socialLinks.customLinks.map((link, idx) => (
+                              <a key={idx} href={link.url} target="_blank" rel="noopener noreferrer" className="text-slate-600 hover:underline hover:text-brand-500 font-semibold">{link.label || "Link"} ↗</a>
                             ))}
                           </div>
                         </div>
                       )}
                     </div>
-                  </div>
-                )}
-
-                {/* Projects */}
-                {candidateProfileToView.profileDetails?.projects?.length > 0 && (
-                  <div className="space-y-3">
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Academic & Personal Projects</h4>
-                    <div className="space-y-2">
-                      {candidateProfileToView.profileDetails.projects.map((proj, idx) => (
-                        <div key={idx} className="p-4 border border-slate-150 rounded-2xl bg-white space-y-1">
-                          <h5 className="font-bold text-slate-800 text-sm">{proj.title}</h5>
-                          <p className="text-xs text-slate-500 leading-normal">{proj.description}</p>
-                          {proj.technologies && (
-                            <div className="text-[10px] text-brand-600 font-bold mt-1">Built with: {proj.technologies}</div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Work Experience / Career Gap details */}
-                {candidateProfileToView.profileDetails?.workExperience && (
-                  <div className="space-y-3">
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Experience & Returnee Activities</h4>
-                    <div className="p-4 border border-slate-150 rounded-2xl bg-white text-xs font-semibold space-y-2.5">
-                      {candidateProfileToView.profileDetails.careerBreak?.startDate && (
-                        <div className="pb-2 border-b border-slate-100">
-                          <span className="font-bold text-slate-400 uppercase block text-[9px] mb-0.5">Career Break Timeline</span>
-                          <span className="text-slate-700 font-bold">
-                            {candidateProfileToView.profileDetails.careerBreak.startDate} to {candidateProfileToView.profileDetails.careerBreak.currentlyActive === "Yes" ? "Present" : candidateProfileToView.profileDetails.careerBreak.endDate}
-                          </span>
-                        </div>
-                      )}
-
-                      {candidateProfileToView.profileDetails.workExperience.internship && (
-                        <div>
-                          <span className="font-bold text-slate-400 uppercase block text-[9px] mb-0.5">Prior Internships</span>
-                          <span className="text-slate-700">{candidateProfileToView.profileDetails.workExperience.internship}</span>
-                        </div>
-                      )}
-
-                      {candidateProfileToView.profileDetails.workExperience.freelance && (
-                        <div>
-                          <span className="font-bold text-slate-400 uppercase block text-[9px] mb-0.5">Freelance Work / Consultation</span>
-                          <span className="text-slate-700">{candidateProfileToView.profileDetails.workExperience.freelance}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
+                  ) : (
+                    <div className="text-xs text-slate-400 italic font-semibold">No professional links added.</div>
+                  )}
+                </div>
 
                 {/* Document Downloads */}
                 <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row gap-3 font-sans">
@@ -9898,6 +12349,8 @@ export default function App() {
           </div>
         )
       }
+
+
 
       {/* 4. Create Club & Community Modal */}
       {

@@ -434,7 +434,20 @@ public class DataSeeder implements CommandLineRunner {
         host.setIsVerified(true);
         host.setCategory("host");
         host.setDocUploaded("org_license.pdf");
-        host.setProfileDetailsJson("{}");
+        String hostDetailsJson = "{"
+            + "\"companyName\":\"Salesforce\","
+            + "\"companyWebsite\":\"https://salesforce.com\","
+            + "\"companyIndustry\":\"Cloud Software / SaaS\","
+            + "\"companyLogo\":\"https://images.unsplash.com/photo-1614741118887-7a4ee193a5fa?q=80&w=120&auto=format&fit=crop\","
+            + "\"companyDescription\":\"We are a global leader in customer relationship management (CRM) software, helping companies connect with their customers in a whole new way.\","
+            + "\"recruiterTitle\":\"Senior Recruiter\","
+            + "\"recruiterBio\":\"Passionate about finding outstanding diverse talent and helping returners launch back into tech roles.\","
+            + "\"socialLinks\":{"
+            + "\"linkedin\":\"https://linkedin.com/in/neerajaiyer\","
+            + "\"twitter\":\"https://twitter.com/neerajaiyer\""
+            + "}"
+            + "}";
+        host.setProfileDetailsJson(hostDetailsJson);
 
         userRepository.saveAll(Arrays.asList(candidate, host));
     }

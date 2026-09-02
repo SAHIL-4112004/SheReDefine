@@ -30,6 +30,18 @@ public class Opportunity {
     private String posterUrl;
     private String logoUrl;
 
+    private String hostVerificationProof;
+    private String contactPerson;
+    private String contactEmail;
+    private String contactPhone;
+    private String posterRelationship;
+    private String lifeStageTags;
+    private String shortDescription;
+    private String applicationLink;
+
+    @Lob
+    private String detailsJson;
+
     // Getters and Setters
     public String getLogoUrl() { return logoUrl; }
     public void setLogoUrl(String logoUrl) { this.logoUrl = logoUrl; }
@@ -87,4 +99,31 @@ public class Opportunity {
 
     public String getPosterUrl() { return posterUrl; }
     public void setPosterUrl(String posterUrl) { this.posterUrl = posterUrl; }
+
+    public String getHostVerificationProof() { return hostVerificationProof; }
+    public void setHostVerificationProof(String hostVerificationProof) { this.hostVerificationProof = hostVerificationProof; }
+
+    public String getContactPerson() { return contactPerson; }
+    public void setContactPerson(String contactPerson) { this.contactPerson = contactPerson; }
+
+    public String getContactEmail() { return contactEmail; }
+    public void setContactEmail(String contactEmail) { this.contactEmail = contactEmail; }
+
+    public String getContactPhone() { return contactPhone; }
+    public void setContactPhone(String contactPhone) { this.contactPhone = contactPhone; }
+
+    public String getPosterRelationship() { return posterRelationship; }
+    public void setPosterRelationship(String posterRelationship) { this.posterRelationship = posterRelationship; }
+
+    public String getLifeStageTags() { return lifeStageTags; }
+    public void setLifeStageTags(String lifeStageTags) { this.lifeStageTags = lifeStageTags; }
+
+    public String getShortDescription() { return shortDescription; }
+    public void setShortDescription(String shortDescription) { this.shortDescription = shortDescription; }
+
+    public String getApplicationLink() { return applicationLink; }
+    public void setApplicationLink(String applicationLink) { this.applicationLink = applicationLink; }
+
+    public String getDetailsJson() { return detailsJson; }
+    public void setDetailsJson(String detailsJson) { this.detailsJson = detailsJson; }
 }

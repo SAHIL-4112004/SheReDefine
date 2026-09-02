@@ -9,7 +9,7 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/users")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173"})
+@CrossOrigin(origins = {"http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173", "http://127.0.0.1:5173"})
 public class UserController {
 
     private final UserRepository userRepository;
@@ -48,6 +48,12 @@ public class UserController {
         if (loginRequest.getUsername() == null || loginRequest.getUsername().isEmpty()) {
             return ResponseEntity.badRequest().body("Email/Username is required.");
         }
+        if (loginRequest.getPassword() == null || loginRequest.getPassword().isEmpty()) {
+            return ResponseEntity.badRequest().body("Password is required.");
+        }
+        if (loginRequest.getRole() == null || loginRequest.getRole().isEmpty()) {
+            return ResponseEntity.badRequest().body("Role is required.");
+        }
 
         String usernameOrEmail = loginRequest.getUsername().toLowerCase();
         
@@ -62,7 +68,11 @@ public class UserController {
         }
 
         User user = userOpt.get();
-        if (loginRequest.getPassword() != null && !loginRequest.getPassword().equals(user.getPassword())) {
+        if (!user.getRole().equalsIgnoreCase(loginRequest.getRole())) {
+            return ResponseEntity.badRequest().body("Role mismatch. This account is registered as a " + user.getRole() + ".");
+        }
+        
+        if (!loginRequest.getPassword().equals(user.getPassword())) {
             return ResponseEntity.badRequest().body("Invalid password. Please try again.");
         }
 
